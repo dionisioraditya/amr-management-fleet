@@ -25,7 +25,7 @@ class MapPackageService
         $zipPath = $zipSource instanceof UploadedFile ? $zipSource->getRealPath() : $zipSource;
 
         if (! $zipPath || ! file_exists($zipPath)) {
-            throw new InvalidArgumentException('File paket .zip tidak ditemukan.');
+            throw new InvalidArgumentException('Map .zip archive file not found.');
         }
 
         $tempDir = sys_get_temp_dir().'/ros2_map_'.uniqid();
@@ -34,7 +34,7 @@ class MapPackageService
         try {
             $zip = new ZipArchive;
             if ($zip->open($zipPath) !== true) {
-                throw new InvalidArgumentException('Gagal membuka arsip .zip. Pastikan file tidak rusak.');
+                throw new InvalidArgumentException('Failed to open .zip archive. Ensure the file is valid.');
             }
 
             $zip->extractTo($tempDir);
@@ -102,7 +102,7 @@ class MapPackageService
         $rasterFile = $pgmFile ?? $pngFallbackFile;
 
         if (! $rasterFile && ! $mapYamlFile) {
-            throw new InvalidArgumentException('Paket .zip harus berisi minimal file peta .pgm (dan/atau .yaml standar ROS 2 Nav2 map_saver).');
+            throw new InvalidArgumentException('The .zip package must contain at least a .pgm occupancy grid and/or a ROS 2 Nav2 .yaml metadata file.');
         }
 
         // Parse YAML metadata
@@ -118,7 +118,7 @@ class MapPackageService
         }
 
         if (! $rasterFile) {
-            throw new InvalidArgumentException('File gambar occupancy grid (.pgm / .png) tidak ditemukan di dalam arsip .zip.');
+            throw new InvalidArgumentException('Occupancy grid raster (.pgm / .png) not found inside .zip archive.');
         }
 
         $resolution = isset($yamlData['resolution']) ? (float) $yamlData['resolution'] : 0.05;

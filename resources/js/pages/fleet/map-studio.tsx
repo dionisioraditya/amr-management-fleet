@@ -118,7 +118,7 @@ export default function MapStudioPage({
     const handleUploadZipPackage = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedZipFile) {
-            toast.error('Silakan pilih file paket peta .zip terlebih dahulu.');
+            toast.error('Please select a ROS 2 .zip map archive.');
             return;
         }
 
@@ -143,7 +143,7 @@ export default function MapStudioPage({
                 const importedMap: FacilityMap = json.data;
                 const wpCount = json.meta?.imported_waypoints ?? 0;
                 toast.success(
-                    `Peta '${importedMap.name}' (${importedMap.width_px}×${importedMap.height_px}px, Origin [${importedMap.origin_x}, ${importedMap.origin_y}]) berhasil diimpor${wpCount > 0 ? ` bersama ${wpCount} stasiun` : ''}!`,
+                    `Map '${importedMap.name}' (${importedMap.width_px}×${importedMap.height_px}px, Origin [${importedMap.origin_x}, ${importedMap.origin_y}]) calibrated${wpCount > 0 ? ` with ${wpCount} stations` : ''}.`,
                 );
                 setMapModalOpen(false);
                 setSelectedZipFile(null);
@@ -151,11 +151,11 @@ export default function MapStudioPage({
                 router.reload();
             } else {
                 toast.error(
-                    json.message || 'Gagal memproses paket peta .zip ROS 2.',
+                    json.message || 'Failed to parse ROS 2 .zip map package.',
                 );
             }
         } catch {
-            toast.error('Kesalahan jaringan saat mengunggah paket .zip.');
+            toast.error('Network error while uploading .zip package.');
         } finally {
             setSavingMap(false);
         }
@@ -189,15 +189,15 @@ export default function MapStudioPage({
 
             const json = await response.json();
             if (response.ok && json.data) {
-                toast.success(`Kalibrasi peta '${payload.name}' diperbarui.`);
+                toast.success(`Calibration updated for '${payload.name}'.`);
                 setMapModalOpen(false);
                 setSelectedMap(json.data);
                 router.reload();
             } else {
-                toast.error(json.message || 'Gagal memperbarui peta.');
+                toast.error(json.message || 'Failed to update map parameters.');
             }
         } catch {
-            toast.error('Kesalahan jaringan saat menyimpan peta.');
+            toast.error('Network error while saving map calibration.');
         } finally {
             setSavingMap(false);
         }
@@ -205,7 +205,7 @@ export default function MapStudioPage({
 
     const handleExportZipPackage = (map: FacilityMap) => {
         window.location.href = `/api/maps/${map.id}/export-package`;
-        toast.success(`Mengunduh paket ROS 2 (.zip) untuk '${map.name}'...`);
+        toast.success(`Exporting ROS 2 package (.zip) for '${map.name}'...`);
     };
 
     const handleDownloadYaml = (map: FacilityMap) => {
@@ -233,7 +233,7 @@ export default function MapStudioPage({
     const handleDeleteMap = async (map: FacilityMap) => {
         if (maps.length <= 1) {
             toast.warning(
-                'Tidak dapat menghapus satu-satunya peta aktif di katalog.',
+                'Cannot delete the only active map in the catalog.',
             );
             return;
         }
@@ -245,7 +245,7 @@ export default function MapStudioPage({
             });
 
             if (response.ok) {
-                toast.success(`Peta '${map.name}' dihapus.`);
+                toast.success(`Map '${map.name}' deleted.`);
                 if (currentMap?.id === map.id) {
                     setSelectedMap(
                         maps.find((m) => m.id !== map.id) ?? null,
@@ -254,7 +254,7 @@ export default function MapStudioPage({
                 router.reload();
             }
         } catch {
-            toast.error('Kesalahan jaringan saat menghapus peta.');
+            toast.error('Network error while deleting map.');
         }
     };
 
@@ -292,12 +292,12 @@ export default function MapStudioPage({
 
             if (response.ok) {
                 toast.success(
-                    `Peta '${currentMap.name}' disinkronkan ke Nav2 Server (10.32.254.195).`,
+                    `Map '${currentMap.name}' deployed to Nav2 Server (10.32.254.195).`,
                 );
                 router.reload();
             }
         } catch {
-            toast.error('Gagal mengirim peta ke Nav2 server.');
+            toast.error('Failed to deploy map to Nav2 server.');
         } finally {
             setPushingNav2(false);
         }
@@ -386,7 +386,7 @@ export default function MapStudioPage({
                                     ? 'bg-emerald-50 font-bold text-emerald-700 ring-1 ring-emerald-300'
                                     : 'bg-surface-container-low text-tertiary'
                             }`}
-                            title="Tampilkan Titik Origin ROS [0.00m, 0.00m]"
+                            title="Toggle ROS Origin Datum [0.00m, 0.00m]"
                         >
                             <span className="material-symbols-outlined text-[15px]">
                                 my_location
@@ -402,7 +402,7 @@ export default function MapStudioPage({
                                     ? 'bg-red-50 font-bold text-error ring-1 ring-red-200'
                                     : 'bg-surface-container-low text-tertiary'
                             }`}
-                            title="Tampilkan Zona Terlarang (Keep-Out Zones)"
+                            title="Toggle Keep-Out Zone Mask"
                         >
                             <span className="material-symbols-outlined text-[15px]">
                                 do_not_disturb_on
@@ -422,7 +422,7 @@ export default function MapStudioPage({
                             <span className="material-symbols-outlined text-[15px]">
                                 smart_toy
                             </span>
-                            <span>Simulasi AMR</span>
+                            <span>AMR SIM</span>
                         </button>
                     </div>
 
@@ -506,10 +506,9 @@ export default function MapStudioPage({
                             </div>
 
                             <p className="mt-1 font-body-sm text-xs text-tertiary">
-                                Impor paket peta <code>.zip</code> hasil{' '}
-                                <code>map_saver_cli</code> (berisi{' '}
-                                <code>.pgm</code> &amp; <code>.yaml</code>).
-                                Koordinat origin dikalibrasi otomatis 1:1.
+                                Import ROS 2 <code>map_saver_cli</code> archive
+                                (<code>.pgm</code> + <code>.yaml</code>). 1:1
+                                origin auto-calibrated.
                             </p>
 
                             <div className="mt-3 flex flex-col gap-2">
@@ -521,7 +520,7 @@ export default function MapStudioPage({
                                     <span className="material-symbols-outlined text-[18px]">
                                         folder_zip
                                     </span>
-                                    <span>+ Pilih File Map (.zip)</span>
+                                    <span>+ ADD MAP (.ZIP)</span>
                                 </button>
                             </div>
                         </div>
@@ -531,7 +530,7 @@ export default function MapStudioPage({
                             <div className="rounded-xl border border-slate-200/80 bg-white p-space-md shadow-xs">
                                 <div className="mb-2 flex items-center justify-between">
                                     <span className="font-label-sm text-[10px] font-bold tracking-wider text-primary uppercase">
-                                        Kalibrasi Origin Peta Aktif
+                                        ACTIVE MAP ORIGIN CALIBRATION
                                     </span>
                                     {currentMap.raw_pgm_path ? (
                                         <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-800">
@@ -573,7 +572,7 @@ export default function MapStudioPage({
 
                                 <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 font-mono text-[10px] text-tertiary">
                                     <span>
-                                        Dimensi:{' '}
+                                        Size:{' '}
                                         <strong className="text-on-surface">
                                             {currentMap.width_px ?? 460}×
                                             {currentMap.height_px ?? 300} px
@@ -586,9 +585,9 @@ export default function MapStudioPage({
                                         onClick={() =>
                                             handleExportZipPackage(currentMap)
                                         }
-                                        className="cursor-pointer font-sans text-[11px] font-bold text-primary hover:underline"
+                                        className="cursor-pointer font-sans text-[11px] font-bold text-primary uppercase hover:underline"
                                     >
-                                        Unduh .zip
+                                        EXPORT .ZIP
                                     </button>
                                 </div>
                             </div>
@@ -752,7 +751,7 @@ export default function MapStudioPage({
                                                         )
                                                     }
                                                     className="cursor-pointer rounded p-1 text-primary hover:bg-surface-container-high"
-                                                    title="Export Paket .zip ROS 2 Lengkap"
+                                                    title="Export ROS 2 .zip Package"
                                                 >
                                                     <span className="material-symbols-outlined text-[16px]">
                                                         folder_zip
@@ -776,7 +775,7 @@ export default function MapStudioPage({
                                                         openEditMapModal(map)
                                                     }
                                                     className="cursor-pointer rounded p-1 text-on-surface-variant hover:bg-surface-container-high hover:text-primary"
-                                                    title="Edit Parameter Kalibrasi"
+                                                    title="Edit Calibration Parameters"
                                                 >
                                                     <span className="material-symbols-outlined text-[16px]">
                                                         tune
@@ -788,7 +787,7 @@ export default function MapStudioPage({
                                                         handleDeleteMap(map)
                                                     }
                                                     className="cursor-pointer rounded p-1 text-on-surface-variant hover:bg-error-container hover:text-error"
-                                                    title="Hapus Peta"
+                                                    title="Delete Map"
                                                 >
                                                     <span className="material-symbols-outlined text-[16px]">
                                                         delete
@@ -804,7 +803,7 @@ export default function MapStudioPage({
                 </aside>
             </div>
 
-            {/* Modal Upload Paket .zip ROS 2 / Edit Kalibrasi */}
+            {/* ROS 2 .zip Map Package Upload / Calibration Modal */}
             <Dialog open={mapModalOpen} onOpenChange={setMapModalOpen}>
                 <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
@@ -813,13 +812,13 @@ export default function MapStudioPage({
                                 {editingMap ? 'tune' : 'folder_zip'}
                             </span>
                             {editingMap
-                                ? `Kalibrasi Peta: ${editingMap.name}`
-                                : 'Impor Paket Peta ROS 2 (.zip)'}
+                                ? `Map Calibration: ${editingMap.name}`
+                                : 'Import ROS 2 Map Package (.zip)'}
                         </DialogTitle>
                         <DialogDescription className="font-body-sm text-xs text-tertiary">
                             {editingMap
-                                ? 'Sesuaikan nama peta, resolusi (m/px), dan koordinat origin [X, Y, Yaw] terhadap frame map ROS 2.'
-                                : 'Unggah file .zip hasil perintah map_saver_cli yang berisi file .pgm dan .yaml (beserta opsional keepout_zones.png / stations.yaml).'}
+                                ? 'Adjust map identifier, resolution (m/px), and ROS 2 [X, Y, Yaw] origin datum.'
+                                : 'Upload a ROS 2 map_saver_cli archive (.zip) containing .pgm and .yaml files (plus optional keepout_zones.png / stations.yaml).'}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -834,7 +833,7 @@ export default function MapStudioPage({
                         {!editingMap && (
                             <div>
                                 <label className="mb-1.5 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                    Arsip Paket Peta (.zip)
+                                    Map Archive (.zip)
                                 </label>
                                 <div
                                     onClick={() =>
@@ -856,16 +855,16 @@ export default function MapStudioPage({
                                                 {(
                                                     selectedZipFile.size / 1024
                                                 ).toFixed(1)}{' '}
-                                                KB • Klik untuk ganti file .zip
+                                                KB • Click to replace .zip archive
                                             </div>
                                         </div>
                                     ) : (
                                         <div>
-                                            <div className="font-headline-sm text-xs font-bold text-primary">
-                                                Klik untuk membuka File Manager
+                                            <div className="font-headline-sm text-xs font-bold text-primary uppercase">
+                                                Select .zip Archive
                                             </div>
                                             <div className="font-body-sm text-[11px] text-tertiary">
-                                                Format: <code>.zip</code> berisi{' '}
+                                                Format: <code>.zip</code> containing{' '}
                                                 <code>*.pgm</code> +{' '}
                                                 <code>*.yaml</code>
                                             </div>
@@ -877,14 +876,14 @@ export default function MapStudioPage({
 
                         <div>
                             <label className="mb-1 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                Nama Peta Fasilitas
+                                Map Identifier
                             </label>
                             <input
                                 type="text"
                                 required={Boolean(editingMap)}
                                 value={formName}
                                 onChange={(e) => setFormName(e.target.value)}
-                                placeholder="Otomatis dari nama file jika dikosongkan..."
+                                placeholder="Auto-detected from archive filename if blank..."
                                 className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 font-body-sm text-xs font-semibold text-slate-900 focus:border-primary focus:outline-none"
                             />
                         </div>
@@ -955,24 +954,23 @@ export default function MapStudioPage({
                         ) : (
                             <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3 font-body-sm text-[11px] text-slate-700">
                                 <div className="mb-1 font-bold text-primary">
-                                    Auto-Parser Standar Industri ROS 2:
+                                    ROS 2 Nav2 Automated Package Parser:
                                 </div>
                                 <ul className="list-inside list-disc space-y-0.5 text-[11px]">
                                     <li>
-                                        Membaca otomatis{' '}
+                                        Extracts{' '}
                                         <code>resolution</code> &amp;{' '}
-                                        <code>origin: [x, y, yaw]</code> dari{' '}
+                                        <code>origin: [x, y, yaw]</code> from{' '}
                                         <code>.yaml</code>
                                     </li>
                                     <li>
-                                        Mengonversi <code>.pgm</code> ke{' '}
-                                        <code>.png</code> presisi piksel 1:1
+                                        Converts <code>.pgm</code> to lossless
+                                        1:1 <code>.png</code> raster
                                     </li>
                                     <li>
-                                        Otomatis memuat{' '}
+                                        Auto-imports{' '}
                                         <code>keepout_zones.png</code> &amp;{' '}
-                                        <code>stations.yaml</code> jika ada di
-                                        dalam <code>.zip</code>
+                                        <code>stations.yaml</code> if bundled
                                     </li>
                                 </ul>
                             </div>
@@ -982,9 +980,9 @@ export default function MapStudioPage({
                             <button
                                 type="button"
                                 onClick={() => setMapModalOpen(false)}
-                                className="cursor-pointer rounded-lg bg-surface-container px-4 py-2 font-label-md text-xs font-semibold text-on-surface hover:bg-surface-container-high"
+                                className="cursor-pointer rounded-lg bg-surface-container px-4 py-2 font-label-md text-xs font-semibold text-on-surface uppercase hover:bg-surface-container-high"
                             >
-                                Batal
+                                Cancel
                             </button>
                             <button
                                 type="submit"
@@ -992,10 +990,10 @@ export default function MapStudioPage({
                                 className="cursor-pointer rounded-lg bg-primary px-5 py-2 font-label-md text-xs font-bold tracking-wider text-white uppercase shadow-md hover:bg-secondary"
                             >
                                 {savingMap
-                                    ? 'Memproses...'
+                                    ? 'Processing...'
                                     : editingMap
-                                      ? 'Simpan Kalibrasi'
-                                      : 'Ekstrak & Impor Peta (.zip)'}
+                                      ? 'Save Calibration'
+                                      : 'Import & Calibrate (.zip)'}
                             </button>
                         </DialogFooter>
                     </form>

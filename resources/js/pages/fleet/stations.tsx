@@ -254,11 +254,11 @@ export default function StationsPage({
                         </span>
                         <div>
                             <div className="font-headline-sm text-xs font-bold uppercase">
-                                Mode Pilih Titik Station Aktif
+                                Station Pick Mode Active
                             </div>
                             <div className="font-label-sm text-[10px] text-slate-300">
-                                Klik di mana saja pada kanvas peta gudang untuk
-                                mengambil koordinat [X, Y].
+                                Click anywhere on the blueprint canvas to
+                                capture [X, Y] coordinates.
                             </div>
                         </div>
                         <button
@@ -266,7 +266,7 @@ export default function StationsPage({
                             onClick={() => setPickMode(false)}
                             className="rounded bg-white/15 px-2.5 py-1 font-label-sm text-[10px] font-bold uppercase hover:bg-white/25"
                         >
-                            Batal
+                            Cancel
                         </button>
                     </div>
                 )}
@@ -310,8 +310,8 @@ export default function StationsPage({
                                     </span>
                                 </div>
                                 <p className="mt-1 font-body-sm text-body-sm text-tertiary">
-                                    Kelola titik henti, charging station,
-                                    pick-up &amp; drop-off armada AMR Nav2
+                                    Configure Nav2 docking waypoints, charging
+                                    bays, and P&amp;D nodes.
                                 </p>
                             </div>
                         </div>
@@ -379,7 +379,7 @@ export default function StationsPage({
                                     <span className="material-symbols-outlined text-[16px]">
                                         add_circle
                                     </span>
-                                    <span>Tambah Station</span>
+                                    <span>+ ADD STATION</span>
                                 </button>
                             </div>
                         </div>
@@ -732,11 +732,11 @@ export default function StationsPage({
                             </span>
                             {editingStation
                                 ? `Edit Station ${editingStation.name}`
-                                : 'Tambah Station Baru'}
+                                : 'Register Station Waypoint'}
                         </DialogTitle>
                         <DialogDescription className="font-body-sm text-xs text-tertiary">
-                            Registrasikan waypoint docking atau buffer ke peta
-                            ROS 2 Nav2 ({activeMap?.name ?? 'Active Map'}).
+                            Register a docking or buffer waypoint node on ROS 2
+                            Nav2 map ({activeMap?.name ?? 'Active Map'}).
                         </DialogDescription>
                     </DialogHeader>
 
@@ -882,9 +882,9 @@ export default function StationsPage({
                             <button
                                 type="button"
                                 onClick={() => setModalOpen(false)}
-                                className="rounded-lg bg-surface-container px-4 py-2 font-label-md text-xs font-semibold text-on-surface hover:bg-surface-container-high"
+                                className="rounded-lg bg-surface-container px-4 py-2 font-label-md text-xs font-semibold text-on-surface uppercase hover:bg-surface-container-high"
                             >
-                                Batal
+                                Cancel
                             </button>
                             <button
                                 type="submit"
@@ -892,8 +892,8 @@ export default function StationsPage({
                                 className="rounded-lg bg-primary-container px-5 py-2 font-label-md text-xs font-bold tracking-wider text-on-primary-container uppercase shadow-md hover:bg-primary hover:text-on-primary"
                             >
                                 {saving
-                                    ? 'Menyimpan...'
-                                    : 'Simpan Station Ke Map'}
+                                    ? 'Saving...'
+                                    : 'Save Station'}
                             </button>
                         </DialogFooter>
                     </form>

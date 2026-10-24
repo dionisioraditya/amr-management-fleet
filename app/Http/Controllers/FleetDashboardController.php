@@ -20,24 +20,7 @@ class FleetDashboardController extends Controller
      */
     public function liveMap(): Response
     {
-        $maps = Schema::hasTable('maps')
-            ? Map::with(['waypoints', 'pathplans'])->latest()->get()
-            : collect();
-
-        $vehicles = Schema::hasTable('vehicles')
-            ? Vehicle::with(['pose'])->orderBy('id')->get()
-            : collect();
-
-        $missions = Schema::hasTable('missions')
-            ? Mission::with(['vehicle', 'items.waypoint'])->latest()->limit(10)->get()
-            : collect();
-
-        return Inertia::render('dashboard', [
-            'maps' => $maps,
-            'activeMap' => $maps->first(),
-            'vehicles' => $vehicles,
-            'missions' => $missions,
-        ]);
+        return $this->renderSpatialCockpit('live-map');
     }
 
     /**
@@ -45,15 +28,7 @@ class FleetDashboardController extends Controller
      */
     public function stations(): Response
     {
-        $maps = Schema::hasTable('maps') ? Map::with(['waypoints'])->latest()->get() : collect();
-        $activeMap = $maps->first();
-        $waypoints = $activeMap ? $activeMap->waypoints : (Schema::hasTable('waypoints') ? Waypoint::orderBy('name')->get() : collect());
-
-        return Inertia::render('fleet/stations', [
-            'maps' => $maps,
-            'activeMap' => $activeMap,
-            'waypoints' => $waypoints,
-        ]);
+        return $this->renderSpatialCockpit('stations');
     }
 
     /**
@@ -61,17 +36,39 @@ class FleetDashboardController extends Controller
      */
     public function robots(): Response
     {
+        return $this->renderSpatialCockpit('robots');
+    }
+
+    /**
+     * Shared Unified Spatial Cockpit renderer for Live Map, Stations, and Robots.
+     */
+    protected function renderSpatialCockpit(string $initialSection): Response
+    {
         $maps = Schema::hasTable('maps')
             ? Map::with(['waypoints', 'pathplans'])->latest()->get()
             : collect();
+
+        $activeMap = $maps->first();
+
+        $waypoints = $activeMap
+            ? $activeMap->waypoints
+            : (Schema::hasTable('waypoints') ? Waypoint::orderBy('name')->get() : collect());
 
         $vehicles = Schema::hasTable('vehicles')
             ? Vehicle::with(['pose', 'missions' => fn ($q) => $q->with('items.waypoint')->latest()->limit(3)])->orderBy('id')->get()
             : collect();
 
-        return Inertia::render('fleet/robots', [
-            'activeMap' => $maps->first(),
+        $missions = Schema::hasTable('missions')
+            ? Mission::with(['vehicle', 'items.waypoint'])->latest()->limit(10)->get()
+            : collect();
+
+        return Inertia::render('dashboard', [
+            'initialSection' => $initialSection,
+            'maps' => $maps,
+            'activeMap' => $activeMap,
+            'waypoints' => $waypoints,
             'vehicles' => $vehicles,
+            'missions' => $missions,
         ]);
     }
 

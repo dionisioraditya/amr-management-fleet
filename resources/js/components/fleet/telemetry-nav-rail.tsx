@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -13,12 +13,17 @@ import {
     TooltipTrigger,
 } from '@/components/ui/tooltip';
 
+export type CockpitSection = 'live-map' | 'stations' | 'robots';
+
 interface NavRailItem {
     id: string;
     title: string;
     href: string;
     icon: string;
+    cockpitSection?: CockpitSection;
 }
+
+const SPATIAL_COCKPIT_PATHS = ['/dashboard', '/stations', '/robots'];
 
 const primaryNavItems: NavRailItem[] = [
     {
@@ -26,18 +31,21 @@ const primaryNavItems: NavRailItem[] = [
         title: 'Live Map',
         href: '/dashboard',
         icon: 'radar',
+        cockpitSection: 'live-map',
     },
     {
         id: 'stations',
         title: 'Stations',
         href: '/stations',
         icon: 'ev_station',
+        cockpitSection: 'stations',
     },
     {
         id: 'robots',
         title: 'Robots',
         href: '/robots',
         icon: 'precision_manufacturing',
+        cockpitSection: 'robots',
     },
     {
         id: 'path-planning',
@@ -59,19 +67,84 @@ const primaryNavItems: NavRailItem[] = [
     },
 ];
 
+function normalizePathname(rawUrl: string): string {
+    return rawUrl.split('?')[0].split('#')[0] || '/dashboard';
+}
+
 export function TelemetryNavRail() {
     const { url } = usePage();
+    const [currentPath, setCurrentPath] = useState<string>(() =>
+        normalizePathname(url),
+    );
     const [rosModalOpen, setRosModalOpen] = useState(false);
     const [docsModalOpen, setDocsModalOpen] = useState(false);
 
+    useEffect(() => {
+        setCurrentPath(normalizePathname(url));
+    }, [url]);
+
+    useEffect(() => {
+        const handlePopState = () => {
+            setCurrentPath(normalizePathname(window.location.pathname));
+        };
+        const handleCockpitSwitch = (event: Event) => {
+            const custom = event as CustomEvent<{
+                section: CockpitSection;
+                href: string;
+            }>;
+            if (custom.detail?.href) {
+                setCurrentPath(normalizePathname(custom.detail.href));
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        window.addEventListener('fleet:cockpit-section', handleCockpitSwitch);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+            window.removeEventListener(
+                'fleet:cockpit-section',
+                handleCockpitSwitch,
+            );
+        };
+    }, []);
+
     const isActivePath = (href: string) => {
         if (href === '/dashboard') {
-            return url === '/dashboard' || url.startsWith('/dashboard?');
+            return currentPath === '/dashboard';
         }
-        return url === href || url.startsWith(`${href}/`) || url.startsWith(`${href}?`);
+        return (
+            currentPath === href ||
+            currentPath.startsWith(`${href}/`)
+        );
     };
 
-    const isSettingsActive = url.startsWith('/settings');
+    const isSettingsActive = currentPath.startsWith('/settings');
+    const isInsideSpatialCockpit = SPATIAL_COCKPIT_PATHS.includes(currentPath);
+
+    const handleNavClick = (
+        e: React.MouseEvent<Element>,
+        item: NavRailItem,
+    ) => {
+        if (item.cockpitSection && isInsideSpatialCockpit) {
+            e.preventDefault();
+            if (currentPath !== item.href) {
+                window.history.pushState(
+                    { cockpitSection: item.cockpitSection },
+                    '',
+                    item.href,
+                );
+                setCurrentPath(item.href);
+            }
+            window.dispatchEvent(
+                new CustomEvent('fleet:cockpit-section', {
+                    detail: {
+                        section: item.cockpitSection,
+                        href: item.href,
+                    },
+                }),
+            );
+        }
+    };
 
     return (
         <>
@@ -84,32 +157,51 @@ export function TelemetryNavRail() {
                     {primaryNavItems.map((item) => {
                         const active = isActivePath(item.href);
                         return (
-                            <Tooltip key={item.id}>
-                                <TooltipTrigger asChild>
-                                    <Link
-                                        href={item.href}
-                                        aria-current={
-                                            active ? 'page' : undefined
-                                        }
-                                        data-path={item.id}
-                                        className={`group relative flex h-11 w-11 items-center justify-center rounded-lg transition-all ${
-                                            active
-                                                ? 'bg-surface-container font-bold text-primary shadow-sm'
-                                                : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
-                                        }`}
+                            <div
+                                key={item.id}
+                                className="flex w-full flex-col items-center"
+                            >
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Link
+                                            href={item.href}
+                                            onClick={(e) =>
+                                                handleNavClick(e, item)
+                                            }
+                                            aria-current={
+                                                active ? 'page' : undefined
+                                            }
+                                            data-path={item.id}
+                                            className={`group relative flex h-11 w-11 items-center justify-center rounded-lg transition-all ${
+                                                active
+                                                    ? 'bg-surface-container font-bold text-primary shadow-sm'
+                                                    : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
+                                            }`}
+                                        >
+                                            {active && (
+                                                <span className="absolute top-1.5 bottom-1.5 -left-1.5 w-[3px] rounded-r-full bg-primary-container" />
+                                            )}
+                                            <span className="material-symbols-outlined text-[22px]">
+                                                {item.icon}
+                                            </span>
+                                        </Link>
+                                    </TooltipTrigger>
+                                    <TooltipContent
+                                        side="right"
+                                        className="font-label-md text-xs"
                                     >
-                                        {active && (
-                                            <span className="absolute top-1.5 bottom-1.5 -left-1.5 w-[3px] rounded-r-full bg-primary-container" />
-                                        )}
-                                        <span className="material-symbols-outlined text-[22px]">
-                                            {item.icon}
-                                        </span>
-                                    </Link>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="font-label-md text-xs">
-                                    {item.title}
-                                </TooltipContent>
-                            </Tooltip>
+                                        {item.title}
+                                    </TooltipContent>
+                                </Tooltip>
+
+                                {item.id === 'robots' && (
+                                    <div
+                                        role="separator"
+                                        aria-orientation="horizontal"
+                                        className="mt-space-sm h-px w-8 rounded-full bg-slate-200"
+                                    />
+                                )}
+                            </div>
                         );
                     })}
                 </nav>

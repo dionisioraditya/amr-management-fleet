@@ -64,7 +64,7 @@ class MapController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => "Paket peta ROS 2 '{$map->name}' berhasil diekstrak dan dikalibrasi.",
+                'message' => "ROS 2 map package '{$map->name}' extracted and calibrated.",
                 'data' => $map,
                 'meta' => [
                     'imported_waypoints' => $result['imported_waypoints'],

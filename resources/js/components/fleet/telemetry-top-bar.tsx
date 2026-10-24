@@ -111,12 +111,50 @@ export function TelemetryTopBar() {
 
     const userName = auth?.user?.name ?? 'Sarah L.';
 
+    const navigateOrSwitchCockpit = (href: string) => {
+        const currentPath =
+            window.location.pathname.split('?')[0].split('#')[0] ||
+            '/dashboard';
+        const targetPath = href.split('?')[0].split('#')[0];
+        const sectionMap: Record<
+            string,
+            'live-map' | 'stations' | 'robots' | undefined
+        > = {
+            '/dashboard': 'live-map',
+            '/stations': 'stations',
+            '/robots': 'robots',
+        };
+        const targetSection = sectionMap[targetPath];
+        if (targetSection && sectionMap[currentPath]) {
+            window.history.pushState(
+                { cockpitSection: targetSection },
+                '',
+                targetPath,
+            );
+            window.dispatchEvent(
+                new CustomEvent('fleet:cockpit-section', {
+                    detail: {
+                        section: targetSection,
+                        href: targetPath,
+                    },
+                }),
+            );
+            return true;
+        }
+        return false;
+    };
+
     return (
         <>
             <header className="fixed top-0 right-0 left-0 z-50 flex h-16 items-center justify-between border-b border-slate-200/80 bg-surface-container-lowest/95 px-margin-lg shadow-[0_1px_8px_rgba(0,0,0,0.04)] backdrop-blur-md">
                 {/* Left Brand Identity */}
                 <Link
                     href="/dashboard"
+                    onClick={(e) => {
+                        if (navigateOrSwitchCockpit('/dashboard')) {
+                            e.preventDefault();
+                        }
+                    }}
                     className="flex w-72 items-center gap-space-lg transition-opacity hover:opacity-90"
                 >
                     <img
@@ -170,7 +208,13 @@ export function TelemetryTopBar() {
                                         type="button"
                                         onMouseDown={() => {
                                             setSearchFocused(false);
-                                            router.visit(item.href);
+                                            if (
+                                                !navigateOrSwitchCockpit(
+                                                    item.href,
+                                                )
+                                            ) {
+                                                router.visit(item.href);
+                                            }
                                         }}
                                         className="flex w-full items-center justify-between px-3.5 py-2.5 text-left transition-colors hover:bg-surface-container-low"
                                     >

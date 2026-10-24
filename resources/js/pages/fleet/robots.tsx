@@ -133,17 +133,17 @@ export default function RobotsPage({
                 if (modalMode === 'create') {
                     setVehicles((prev) => [...prev, saved]);
                     setSelectedVehicleId(saved.id);
-                    showBanner(`Unit ${saved.id} berhasil didaftarkan.`);
+                    showBanner(`Unit ${saved.id} registered.`);
                 } else {
                     setVehicles((prev) =>
                         prev.map((v) => (v.id === saved.id ? saved : v)),
                     );
-                    showBanner(`Konfigurasi ${saved.id} diperbarui.`);
+                    showBanner(`Configuration updated for ${saved.id}.`);
                 }
                 setModalOpen(false);
                 router.reload({ only: ['vehicles', 'telemetryShell'] });
             } else {
-                showBanner(json.message ?? 'Gagal menyimpan data kendaraan.');
+                showBanner(json.message ?? 'Failed to save vehicle record.');
             }
         } finally {
             setIsSaving(false);
@@ -166,7 +166,7 @@ export default function RobotsPage({
                 if (selectedVehicleId === vehicle.id) {
                     setSelectedVehicleId(remaining[0]?.id ?? null);
                 }
-                showBanner(`Unit ${vehicle.id} dihapus dari armada.`);
+                showBanner(`Unit ${vehicle.id} decommissioned from fleet.`);
                 router.reload({ only: ['vehicles', 'telemetryShell'] });
             }
         } finally {
@@ -242,7 +242,7 @@ export default function RobotsPage({
             event: `Teleop 2D Nav Goal commanded to [X:${coord.x}m, Y:${coord.y}m]`,
         });
         showBanner(
-            `Target pose ${selectedVehicle.id} dikirim ke [${coord.x}m, ${coord.y}m]`,
+            `Target pose for ${selectedVehicle.id} dispatched to [${coord.x}m, ${coord.y}m]`,
         );
     };
 
@@ -328,7 +328,7 @@ export default function RobotsPage({
                                 <span className="material-symbols-outlined text-[18px]">
                                     add_circle
                                 </span>
-                                <span>+ Daftarkan Robot Baru</span>
+                                <span>+ REGISTER AMR</span>
                             </button>
                         </div>
 
@@ -351,7 +351,7 @@ export default function RobotsPage({
                                     type="text"
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    placeholder="Cari ID, Nama, atau IP (10.32.254.195)..."
+                                    placeholder="Filter by ID, Name, or IP (10.32.254.195)..."
                                     className="w-full rounded-lg border border-slate-200 bg-surface-container-low py-1.5 pr-3 pl-8 font-body-sm text-xs text-on-surface placeholder:text-tertiary focus:border-secondary focus:outline-none"
                                 />
                             </div>
@@ -490,7 +490,7 @@ export default function RobotsPage({
 
                             {filteredVehicles.length === 0 && (
                                 <div className="rounded-xl border border-slate-200 bg-white/90 p-6 text-center font-body-sm text-xs text-tertiary">
-                                    Tidak ada unit AMR yang cocok dengan filter.
+                                    No AMR units match current filter criteria.
                                 </div>
                             )}
                         </div>
@@ -578,15 +578,15 @@ export default function RobotsPage({
                                     onClick={() =>
                                         setPickPoseMode((prev) => !prev)
                                     }
-                                    className={`cursor-pointer rounded px-2 py-0.5 font-mono text-[10px] font-bold transition-colors ${
+                                    className={`cursor-pointer rounded px-2 py-0.5 font-mono text-[10px] font-bold uppercase transition-colors ${
                                         pickPoseMode
                                             ? 'bg-secondary text-white'
                                             : 'bg-white text-primary hover:bg-sky-50'
                                     }`}
                                 >
                                     {pickPoseMode
-                                        ? 'Klik Peta... (Batal)'
-                                        : 'Set Pose di Peta'}
+                                        ? 'PICKING... (CANCEL)'
+                                        : 'SET POSE ON MAP'}
                                 </button>
                             </div>
 
@@ -703,7 +703,7 @@ export default function RobotsPage({
                         <div>
                             <div className="mb-1 flex justify-between font-mono text-[10px]">
                                 <span className="text-tertiary uppercase">
-                                    Simulasi Baterai (SoC)
+                                    Battery SoC Override
                                 </span>
                                 <span className="font-bold text-primary">
                                     {selectedVehicle.battery_percentage}%
@@ -730,7 +730,7 @@ export default function RobotsPage({
                             <button
                                 type="button"
                                 onClick={() => openEditModal(selectedVehicle)}
-                                className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-surface-container-low py-2 font-label-md text-xs font-bold text-on-surface transition-colors hover:bg-surface-container-high"
+                                className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-surface-container-low py-2 font-label-md text-xs font-bold text-on-surface uppercase transition-colors hover:bg-surface-container-high"
                             >
                                 <span className="material-symbols-outlined text-[16px]">
                                     edit
@@ -743,18 +743,18 @@ export default function RobotsPage({
                                 onClick={() =>
                                     void handleDeleteVehicle(selectedVehicle)
                                 }
-                                className="flex cursor-pointer items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-label-md text-xs font-bold text-error transition-colors hover:bg-red-100"
+                                className="flex cursor-pointer items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 font-label-md text-xs font-bold text-error uppercase transition-colors hover:bg-red-100"
                             >
                                 <span className="material-symbols-outlined text-[16px]">
                                     delete
                                 </span>
-                                Hapus
+                                Delete
                             </button>
                         </div>
                     </div>
                 )}
 
-                {/* 5. Modal Registrasi & Edit Robot */}
+                {/* 5. AMR Unit Registration & Edit Modal */}
                 {modalOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs">
                         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
@@ -763,10 +763,10 @@ export default function RobotsPage({
                                     <span className="font-mono text-[10px] font-bold tracking-wider text-primary uppercase">
                                         Fleet Registry CRUD
                                     </span>
-                                    <h3 className="font-headline-md text-lg font-bold text-on-surface">
+                                    <h3 className="font-headline-md text-lg font-bold text-on-surface uppercase">
                                         {modalMode === 'create'
-                                            ? 'Daftarkan Robot AMR Baru'
-                                            : `Edit Konfigurasi ${formId}`}
+                                            ? 'Register AMR Unit'
+                                            : `Edit AMR Config // ${formId}`}
                                     </h3>
                                 </div>
                                 <button
@@ -786,7 +786,7 @@ export default function RobotsPage({
                             >
                                 <div>
                                     <label className="mb-1 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                        Kode Unit AMR (ID)
+                                        AMR Unit ID
                                     </label>
                                     <input
                                         type="text"
@@ -803,7 +803,7 @@ export default function RobotsPage({
 
                                 <div>
                                     <label className="mb-1 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                        Nama / Deskripsi Unit
+                                        Unit Designation
                                     </label>
                                     <input
                                         type="text"
@@ -835,7 +835,7 @@ export default function RobotsPage({
                                     </div>
                                     <div>
                                         <label className="mb-1 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                            Baterai Awal (%)
+                                            Initial Battery (%)
                                         </label>
                                         <input
                                             type="number"
@@ -855,7 +855,7 @@ export default function RobotsPage({
 
                                 <div>
                                     <label className="mb-1 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                        Status Operasional
+                                        Operational State
                                     </label>
                                     <select
                                         value={formStatus}
@@ -880,20 +880,20 @@ export default function RobotsPage({
                                     <button
                                         type="button"
                                         onClick={() => setModalOpen(false)}
-                                        className="cursor-pointer rounded-lg px-4 py-2 font-label-md text-xs font-semibold text-tertiary hover:bg-slate-100"
+                                        className="cursor-pointer rounded-lg px-4 py-2 font-label-md text-xs font-semibold text-tertiary uppercase hover:bg-slate-100"
                                     >
-                                        Batal
+                                        Cancel
                                     </button>
                                     <button
                                         type="submit"
                                         disabled={isSaving}
-                                        className="cursor-pointer rounded-lg bg-primary px-5 py-2 font-label-md text-xs font-bold text-white shadow-sm hover:bg-secondary disabled:opacity-50"
+                                        className="cursor-pointer rounded-lg bg-primary px-5 py-2 font-label-md text-xs font-bold text-white uppercase shadow-sm hover:bg-secondary disabled:opacity-50"
                                     >
                                         {isSaving
-                                            ? 'Menyimpan...'
+                                            ? 'Saving...'
                                             : modalMode === 'create'
-                                              ? 'Simpan & Daftarkan'
-                                              : 'Simpan Perubahan'}
+                                              ? 'Register Unit'
+                                              : 'Save Changes'}
                                     </button>
                                 </div>
                             </form>

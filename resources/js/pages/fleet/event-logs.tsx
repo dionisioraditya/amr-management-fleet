@@ -277,7 +277,7 @@ export default function EventLogsPage({
                             <span className="material-symbols-outlined text-[16px]">
                                 note_add
                             </span>
-                            + Catat Log Manual
+                            + LOG EVENT
                         </button>
 
                         <button
@@ -394,7 +394,7 @@ export default function EventLogsPage({
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Cari log berdasarkan kode AMR, pesan event, ROS2 topic, atau payload JSON..."
+                            placeholder="Search by AMR ID, event message, ROS 2 topic, or JSON payload..."
                             className="w-full rounded-lg border border-slate-200 bg-surface-container-low py-1.5 pr-4 pl-9 font-body-sm text-xs text-on-surface placeholder:text-tertiary focus:border-secondary focus:outline-none"
                         />
                     </div>
@@ -540,8 +540,8 @@ export default function EventLogsPage({
                                                 colSpan={5}
                                                 className="px-4 py-10 text-center font-body-sm text-xs text-tertiary"
                                             >
-                                                Tidak ada baris log yang sesuai
-                                                dengan kriteria filter saat ini.
+                                                No log entries match the current
+                                                filter criteria.
                                             </td>
                                         </tr>
                                     )}
@@ -561,7 +561,7 @@ export default function EventLogsPage({
                                     <h2 className="font-headline-sm text-sm font-bold text-on-surface uppercase">
                                         {selectedLog
                                             ? `Log Packet // ${selectedLog.uid}`
-                                            : 'Pilih Log Untuk Inspeksi'}
+                                            : 'Select Packet to Inspect'}
                                     </h2>
                                 </div>
                                 {selectedLog && (
@@ -636,15 +636,15 @@ export default function EventLogsPage({
                                 </div>
                             ) : (
                                 <p className="py-8 text-center font-body-sm text-xs text-tertiary">
-                                    Klik salah satu baris event di tabel kiri
-                                    untuk melihat payload diagnostik JSON.
+                                    Select an event row from the stream table to
+                                    inspect its diagnostic JSON payload.
                                 </p>
                             )}
                         </div>
                     </div>
                 </div>
 
-                {/* 5. Modal Catat Log Manual */}
+                {/* 5. Manual Audit Log Modal */}
                 {manualModalOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs">
                         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
@@ -653,8 +653,8 @@ export default function EventLogsPage({
                                     <span className="font-mono text-[10px] font-bold tracking-wider text-primary uppercase">
                                         System Audit Logger
                                     </span>
-                                    <h3 className="font-headline-md text-lg font-bold text-on-surface">
-                                        Catat Event Audit Manual
+                                    <h3 className="font-headline-md text-lg font-bold text-on-surface uppercase">
+                                        Log Manual Audit Event
                                     </h3>
                                 </div>
                                 <button
@@ -674,7 +674,7 @@ export default function EventLogsPage({
                             >
                                 <div>
                                     <label className="mb-1 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                        Deskripsi Aksi / Kejadian
+                                        Event / Action Summary
                                     </label>
                                     <input
                                         type="text"
@@ -683,14 +683,14 @@ export default function EventLogsPage({
                                         onChange={(e) =>
                                             setManualAction(e.target.value)
                                         }
-                                        placeholder="Kalibrasi ulang sensor LiDAR AMR-01 selesai"
+                                        placeholder="LiDAR sensor recalibration completed on AMR-01"
                                         className="w-full rounded-lg border border-slate-200 bg-surface-container-low px-3 py-2 font-body-sm text-xs text-on-surface"
                                     />
                                 </div>
 
                                 <div>
                                     <label className="mb-1 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                        Tingkat Severity
+                                        Severity Level
                                     </label>
                                     <select
                                         value={manualLevel}
@@ -716,7 +716,7 @@ export default function EventLogsPage({
 
                                 <div>
                                     <label className="mb-1 block font-label-sm text-xs font-bold text-on-surface uppercase">
-                                        Catatan Konteks Operator (Opsional)
+                                        Operator Context Note (Optional)
                                     </label>
                                     <textarea
                                         rows={3}
@@ -724,7 +724,7 @@ export default function EventLogsPage({
                                         onChange={(e) =>
                                             setManualNote(e.target.value)
                                         }
-                                        placeholder="Catatan teknisi atau parameter tambahan..."
+                                        placeholder="Technician notes or diagnostic parameters..."
                                         className="w-full rounded-lg border border-slate-200 bg-surface-container-low px-3 py-2 font-body-sm text-xs text-on-surface"
                                     />
                                 </div>
@@ -735,18 +735,18 @@ export default function EventLogsPage({
                                         onClick={() =>
                                             setManualModalOpen(false)
                                         }
-                                        className="cursor-pointer rounded-lg px-4 py-2 font-label-md text-xs font-semibold text-tertiary hover:bg-slate-100"
+                                        className="cursor-pointer rounded-lg px-4 py-2 font-label-md text-xs font-semibold text-tertiary uppercase hover:bg-slate-100"
                                     >
-                                        Batal
+                                        Cancel
                                     </button>
                                     <button
                                         type="submit"
                                         disabled={isSaving}
-                                        className="cursor-pointer rounded-lg bg-primary px-5 py-2 font-label-md text-xs font-bold text-white shadow-sm hover:bg-secondary disabled:opacity-50"
+                                        className="cursor-pointer rounded-lg bg-primary px-5 py-2 font-label-md text-xs font-bold text-white uppercase shadow-sm hover:bg-secondary disabled:opacity-50"
                                     >
                                         {isSaving
-                                            ? 'Menyimpan...'
-                                            : 'Simpan Log'}
+                                            ? 'Logging...'
+                                            : 'Commit Log'}
                                     </button>
                                 </div>
                             </form>

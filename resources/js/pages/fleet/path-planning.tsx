@@ -79,14 +79,14 @@ export default function PathPlanningPage({
             { x: 8.0, y: 3.0 },
         ]);
         toast.info(
-            'Mode Gambar Path Aktif: Klik pada peta atau stasiun untuk menambah titik rute.',
+            'Path Draw Mode Active: Click on the map or stations to append route waypoints.',
         );
     };
 
     const startEditPathMode = (path: Pathplan) => {
         selectExistingPath(path);
         setIsDrawing(true);
-        toast.info(`Mengedit rute ${path.name}. Klik peta untuk menambah titik.`);
+        toast.info(`Editing ${path.name}. Click map to append waypoints.`);
     };
 
     const handleAddPathPoint = (coord: PathCoordinate) => {
@@ -99,7 +99,7 @@ export default function PathPlanningPage({
 
     const handleSavePathplan = async () => {
         if (draftCoords.length < 2) {
-            toast.error('Lintasan membutuhkan minimal 2 titik waypoint.');
+            toast.error('Trajectory requires at least 2 waypoints.');
             return;
         }
 
@@ -132,8 +132,8 @@ export default function PathPlanningPage({
             if (response.ok) {
                 toast.success(
                     isUpdate
-                        ? `Lintasan ${payload.name} berhasil diperbarui.`
-                        : `Lintasan ${payload.name} berhasil disimpan & di-deploy ke Nav2.`,
+                        ? `Pathplan ${payload.name} updated.`
+                        : `Pathplan ${payload.name} saved & deployed to Nav2.`,
                 );
                 setIsDrawing(false);
                 if (json.data) {
@@ -142,10 +142,10 @@ export default function PathPlanningPage({
                 }
                 router.reload();
             } else {
-                toast.error(json.message || 'Gagal menyimpan lintasan.');
+                toast.error(json.message || 'Failed to save pathplan.');
             }
         } catch {
-            toast.error('Kesalahan jaringan saat menghubungi server.');
+            toast.error('Network error while contacting Fleet Server.');
         } finally {
             setSaving(false);
         }
@@ -159,7 +159,7 @@ export default function PathPlanningPage({
             });
 
             if (response.ok) {
-                toast.success(`Lintasan ${path.name} dihapus.`);
+                toast.success(`Pathplan ${path.name} deleted.`);
                 if (selectedPath?.id === path.id) {
                     const next =
                         pathplans.find((p) => p.id !== path.id) ?? null;
@@ -171,10 +171,10 @@ export default function PathPlanningPage({
                 }
                 router.reload();
             } else {
-                toast.error('Gagal menghapus lintasan.');
+                toast.error('Failed to delete pathplan.');
             }
         } catch {
-            toast.error('Kesalahan jaringan saat menghapus lintasan.');
+            toast.error('Network error while deleting pathplan.');
         }
     };
 
@@ -287,28 +287,28 @@ export default function PathPlanningPage({
                             edit_location
                         </span>
                         <div className="flex flex-col">
-                            <span className="font-headline-sm text-headline-sm tracking-tight text-white">
-                                Mode Gambar Path Aktif ({draftCoords.length}{' '}
+                            <span className="font-headline-sm text-headline-sm tracking-tight text-white uppercase">
+                                Path Draw Mode Active ({draftCoords.length}{' '}
                                 WPs)
                             </span>
                             <span className="font-label-sm text-label-sm text-outline-variant">
-                                Klik pada peta atau stasiun untuk menambah titik
-                                rute baru.
+                                Click on the map or stations to append route
+                                waypoints.
                             </span>
                         </div>
                         <button
                             type="button"
                             onClick={handleUndoLastPoint}
-                            className="cursor-pointer rounded bg-white/15 px-2.5 py-1 font-label-sm text-label-sm text-white hover:bg-white/25"
+                            className="cursor-pointer rounded bg-white/15 px-2.5 py-1 font-label-sm text-label-sm text-white uppercase hover:bg-white/25"
                         >
-                            Undo Titik
+                            Undo WP
                         </button>
                         <button
                             type="button"
                             onClick={() => setIsDrawing(false)}
-                            className="cursor-pointer rounded bg-primary-container px-3 py-1 font-label-sm text-label-sm font-bold text-on-primary-container"
+                            className="cursor-pointer rounded bg-primary-container px-3 py-1 font-label-sm text-label-sm font-bold text-on-primary-container uppercase"
                         >
-                            Selesai Gambar
+                            Finish Draw
                         </button>
                     </div>
                 )}
@@ -332,8 +332,8 @@ export default function PathPlanningPage({
                                         Path Planning
                                     </h1>
                                     <p className="font-body-sm text-body-sm text-tertiary">
-                                        Kelola lintasan, kurva spline, dan batas
-                                        kecepatan armada AMR.
+                                        Configure Nav2 transit lanes, spline
+                                        trajectories, and velocity limits.
                                     </p>
                                 </div>
                                 <button
@@ -344,7 +344,7 @@ export default function PathPlanningPage({
                                     <span className="material-symbols-outlined text-[16px]">
                                         add_road
                                     </span>
-                                    <span>+ Buat Path Baru</span>
+                                    <span>+ NEW PATH</span>
                                 </button>
                             </div>
 
@@ -355,7 +355,7 @@ export default function PathPlanningPage({
                                 </span>
                                 <div className="min-w-0 flex-1">
                                     <label className="block font-label-sm text-label-sm text-tertiary uppercase">
-                                        Peta Aktif Terpilih
+                                        Active Facility Map
                                     </label>
                                     <div className="font-headline-sm text-headline-sm font-semibold text-on-surface">
                                         {activeMap?.name ??
@@ -568,11 +568,11 @@ export default function PathPlanningPage({
                             <div className="mb-space-md rounded-lg bg-surface-container-lowest p-space-sm">
                                 <div className="mb-space-xs flex items-center justify-between font-label-sm text-label-sm text-tertiary">
                                     <span>
-                                        SEKUENS WAYPOINT ({draftCoords.length}{' '}
-                                        TOTAL)
+                                        WAYPOINT SEQUENCE ({draftCoords.length}{' '}
+                                        NODES)
                                     </span>
                                     <span className="font-semibold text-primary">
-                                        Total Panjang: {activeLength}m
+                                        Length: {activeLength}m
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
@@ -671,16 +671,16 @@ export default function PathPlanningPage({
                                     className="flex-1 cursor-pointer rounded-lg bg-primary px-space-md py-2 font-label-sm text-label-sm font-semibold tracking-wide text-on-primary uppercase shadow-xs transition-all hover:bg-on-primary-fixed-variant"
                                 >
                                     {saving
-                                        ? 'Menyimpan...'
+                                        ? 'Deploying...'
                                         : editingPathId
-                                          ? 'Update & Deploy ke Nav2'
-                                          : 'Simpan & Deploy Path Baru'}
+                                          ? 'Update & Deploy to Nav2'
+                                          : 'Save & Deploy Path'}
                                 </button>
                                 {draftCoords.length > 2 && (
                                     <button
                                         type="button"
                                         onClick={handleUndoLastPoint}
-                                        className="cursor-pointer rounded-lg bg-surface-container px-space-md py-2 font-label-sm text-label-sm text-on-surface transition-all hover:bg-surface-container-high"
+                                        className="cursor-pointer rounded-lg bg-surface-container px-space-md py-2 font-label-sm text-label-sm text-on-surface uppercase transition-all hover:bg-surface-container-high"
                                     >
                                         Undo WP
                                     </button>
@@ -692,11 +692,11 @@ export default function PathPlanningPage({
                         <div className="rounded-xl border border-slate-200/80 bg-white p-space-md shadow-xs">
                             <div className="mb-space-sm flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                    <h2 className="font-headline-sm text-headline-sm font-bold text-on-surface">
-                                        Daftar Lintasan Jalur Armada
+                                    <h2 className="font-headline-sm text-headline-sm font-bold text-on-surface uppercase">
+                                        Transit Lane Manifest
                                     </h2>
                                     <span className="rounded-full bg-surface-container px-2 py-0.5 font-label-sm text-label-sm text-tertiary">
-                                        {filteredPaths.length} Rute
+                                        {filteredPaths.length} Lanes
                                     </span>
                                 </div>
                                 <select
@@ -711,7 +711,7 @@ export default function PathPlanningPage({
                                     }
                                     className="cursor-pointer rounded bg-surface-container-low px-2 py-1 font-label-sm text-label-sm text-on-surface focus:outline-none"
                                 >
-                                    <option value="all">Filter: Semua</option>
+                                    <option value="all">Filter: All</option>
                                     <option value="bi">Bidirectional</option>
                                     <option value="uni">One-Way</option>
                                 </select>
@@ -816,7 +816,7 @@ export default function PathPlanningPage({
                                                             )
                                                         }
                                                         className="cursor-pointer rounded p-1 text-primary hover:bg-surface-container"
-                                                        title="Sorot di Map"
+                                                        title="Focus on Map"
                                                     >
                                                         <span className="material-symbols-outlined text-[18px]">
                                                             visibility
@@ -830,7 +830,7 @@ export default function PathPlanningPage({
                                                             )
                                                         }
                                                         className="cursor-pointer rounded p-1 text-on-surface-variant hover:bg-surface-container"
-                                                        title="Edit Lintasan di Peta"
+                                                        title="Edit Trajectory on Map"
                                                     >
                                                         <span className="material-symbols-outlined text-[18px]">
                                                             edit
@@ -844,7 +844,7 @@ export default function PathPlanningPage({
                                                             )
                                                         }
                                                         className="cursor-pointer rounded p-1 text-on-surface-variant hover:bg-surface-container"
-                                                        title="Ekspor Nav2 YAML"
+                                                        title="Export Nav2 YAML"
                                                     >
                                                         <span className="material-symbols-outlined text-[18px]">
                                                             download
@@ -858,7 +858,7 @@ export default function PathPlanningPage({
                                                             )
                                                         }
                                                         className="cursor-pointer rounded p-1 text-on-surface-variant hover:bg-error-container hover:text-error"
-                                                        title="Hapus Lintasan"
+                                                        title="Delete Pathplan"
                                                     >
                                                         <span className="material-symbols-outlined text-[18px]">
                                                             delete
