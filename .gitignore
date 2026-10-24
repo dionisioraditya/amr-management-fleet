@@ -28,7 +28,7 @@ yarn-error.log
 /.vscode
 /.zed
 /ref
-
+/.github
 # Graphify / Second Brain artifacts/ AI artifacts
 graph.json
 graph.html
