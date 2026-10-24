@@ -1,0 +1,261 @@
+@import 'tailwindcss';
+
+@import 'tw-animate-css';
+
+@source '../views';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+    --font-sans:
+        'Inter', 'Instrument Sans', ui-sans-serif, system-ui, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+        'Noto Color Emoji';
+    --font-headline: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    --font-headline-xl: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    --font-headline-lg: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    --font-headline-md: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    --font-headline-sm: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-body-lg: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-body-md: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-body-sm: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --font-label: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --font-label-lg: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --font-label-md: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --font-label-sm: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+    --text-headline-xl: 32px;
+    --text-headline-xl--line-height: 40px;
+    --text-headline-xl--font-weight: 700;
+    --text-headline-lg: 24px;
+    --text-headline-lg--line-height: 32px;
+    --text-headline-lg--font-weight: 600;
+    --text-headline-md: 18px;
+    --text-headline-md--line-height: 24px;
+    --text-headline-md--font-weight: 600;
+    --text-headline-sm: 15px;
+    --text-headline-sm--line-height: 20px;
+    --text-headline-sm--font-weight: 600;
+    --text-body-lg: 16px;
+    --text-body-lg--line-height: 24px;
+    --text-body-md: 14px;
+    --text-body-md--line-height: 20px;
+    --text-body-sm: 12px;
+    --text-body-sm--line-height: 16px;
+    --text-label-lg: 13px;
+    --text-label-lg--line-height: 16px;
+    --text-label-lg--font-weight: 500;
+    --text-label-md: 11px;
+    --text-label-md--line-height: 14px;
+    --text-label-md--font-weight: 500;
+    --text-label-sm: 10px;
+    --text-label-sm--line-height: 12px;
+    --text-label-sm--font-weight: 600;
+
+    --spacing-gutter: 0.75rem;
+    --spacing-gutter-md: 1rem;
+    --spacing-margin: 1rem;
+    --spacing-margin-lg: 1.5rem;
+    --spacing-space-xs: 0.25rem;
+    --spacing-space-sm: 0.5rem;
+    --spacing-space-md: 0.75rem;
+    --spacing-space-lg: 1rem;
+    --spacing-space-xl: 1.5rem;
+
+    --radius-lg: var(--radius);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-sm: calc(var(--radius) - 4px);
+
+    /* Cybernetic Telemetry Surface & Accent Tokens */
+    --color-surface: #f8f9ff;
+    --color-surface-dim: #cbdbf5;
+    --color-surface-bright: #f8f9ff;
+    --color-surface-container-lowest: #ffffff;
+    --color-surface-container-low: #eff4ff;
+    --color-surface-container: #e5eeff;
+    --color-surface-container-high: #dce9ff;
+    --color-surface-container-highest: #d3e4fe;
+    --color-surface-variant: #d3e4fe;
+    --color-surface-tint: #00629d;
+
+    --color-on-surface: #0b1c30;
+    --color-on-surface-variant: #3f4852;
+    --color-on-background: #0b1c30;
+    --color-inverse-surface: #213145;
+    --color-inverse-on-surface: #eaf1ff;
+
+    --color-outline: #6f7883;
+    --color-outline-variant: #bec7d4;
+
+    --color-primary-container: #00a3ff;
+    --color-on-primary: #ffffff;
+    --color-on-primary-container: #00375a;
+    --color-inverse-primary: #98cbff;
+    --color-primary-fixed: #cfe5ff;
+    --color-primary-fixed-dim: #98cbff;
+    --color-on-primary-fixed: #001d33;
+    --color-on-primary-fixed-variant: #004a77;
+
+    --color-secondary-container: #4069f2;
+    --color-on-secondary: #ffffff;
+    --color-on-secondary-container: #fffbff;
+    --color-secondary-fixed: #dce1ff;
+    --color-secondary-fixed-dim: #b7c4ff;
+    --color-on-secondary-fixed: #001551;
+    --color-on-secondary-fixed-variant: #0039b5;
+
+    --color-tertiary: #565e74;
+    --color-on-tertiary: #ffffff;
+    --color-tertiary-container: #949cb5;
+    --color-on-tertiary-container: #2c3448;
+    --color-tertiary-fixed: #dae2fd;
+    --color-tertiary-fixed-dim: #bec6e0;
+    --color-on-tertiary-fixed: #131b2e;
+    --color-on-tertiary-fixed-variant: #3f465c;
+
+    --color-error: #ba1a1a;
+    --color-on-error: #ffffff;
+    --color-error-container: #ffdad6;
+    --color-on-error-container: #93000a;
+
+    /* Base shadcn / application theme bindings */
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+    --background: #f8f9ff;
+    --foreground: #0b1c30;
+    --card: #ffffff;
+    --card-foreground: #0b1c30;
+    --popover: #ffffff;
+    --popover-foreground: #0b1c30;
+    --primary: #00629d;
+    --primary-foreground: #ffffff;
+    --secondary: #1d4ed8;
+    --secondary-foreground: #ffffff;
+    --muted: #eff4ff;
+    --muted-foreground: #565e74;
+    --accent: #e5eeff;
+    --accent-foreground: #0b1c30;
+    --destructive: #ba1a1a;
+    --destructive-foreground: #ffffff;
+    --border: #e2e8f0;
+    --input: #cbd5e1;
+    --ring: #00a3ff;
+    --chart-1: #00a3ff;
+    --chart-2: #10b981;
+    --chart-3: #1d4ed8;
+    --chart-4: #f59e0b;
+    --chart-5: #ef4444;
+    --radius: 0.375rem;
+    --sidebar: #ffffff;
+    --sidebar-foreground: #0b1c30;
+    --sidebar-primary: #00629d;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #e5eeff;
+    --sidebar-accent-foreground: #00629d;
+    --sidebar-border: #e2e8f0;
+    --sidebar-ring: #00a3ff;
+}
+
+.dark {
+    --background: #f8f9ff;
+    --foreground: #0b1c30;
+    --card: #131b2e;
+    --card-foreground: #eaf1ff;
+    --popover: #131b2e;
+    --popover-foreground: #eaf1ff;
+    --primary: #00a3ff;
+    --primary-foreground: #001d33;
+    --secondary: #4069f2;
+    --secondary-foreground: #ffffff;
+    --muted: #213145;
+    --muted-foreground: #949cb5;
+    --accent: #213145;
+    --accent-foreground: #eaf1ff;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --border: #2c3448;
+    --input: #2c3448;
+    --ring: #00a3ff;
+    --chart-1: #00a3ff;
+    --chart-2: #10b981;
+    --chart-3: #6366f1;
+    --chart-4: #f59e0b;
+    --chart-5: #ef4444;
+    --sidebar: #131b2e;
+    --sidebar-foreground: #eaf1ff;
+    --sidebar-primary: #00a3ff;
+    --sidebar-primary-foreground: #001d33;
+    --sidebar-accent: #213145;
+    --sidebar-accent-foreground: #00a3ff;
+    --sidebar-border: #2c3448;
+    --sidebar-ring: #00a3ff;
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background font-body-md text-on-surface;
+        overscroll-behavior: none;
+    }
+
+    /* Hide scrollbars globally across browsers while maintaining full scrollability */
+    * {
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none; /* IE and Edge */
+    }
+
+    *::-webkit-scrollbar {
+        display: none; /* Chrome, Safari, Opera */
+        width: 0;
+        height: 0;
+    }
+}
