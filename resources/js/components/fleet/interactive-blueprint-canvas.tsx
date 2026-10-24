@@ -18,8 +18,9 @@ export interface InteractiveBlueprintCanvasProps {
     onSelectWaypoint?: (waypoint: Waypoint) => void;
     onSelectPathplan?: (pathplan: Pathplan) => void;
     onSelectVehicle?: (vehicle: Vehicle) => void;
-    mode?: 'view' | 'pick-station' | 'draw-path';
+    mode?: 'view' | 'pick-station' | 'draw-path' | 'pose-estimate';
     onPickCoordinate?: (coord: PathCoordinate) => void;
+    onPoseEstimate?: (pose: { x: number; y: number; theta: number }) => void;
     draftCoordinates?: PathCoordinate[];
     onAddPathPoint?: (coord: PathCoordinate) => void;
     snapStep?: number; // e.g. 0.5, 0.25, 1.0, or 0 for off
@@ -208,6 +209,7 @@ export function InteractiveBlueprintCanvas({
     onSelectVehicle,
     mode = 'view',
     onPickCoordinate,
+    onPoseEstimate,
     draftCoordinates = [],
     onAddPathPoint,
     snapStep = 0.5,
@@ -234,6 +236,21 @@ export function InteractiveBlueprintCanvas({
     });
     const [isPanning, setIsPanning] = useState(false);
     const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+
+    // 2D Pose Estimate Drag-To-Aim State
+    const [poseEstimateOrigin, setPoseEstimateOrigin] = useState<{
+        x: number;
+        y: number;
+        cx: number;
+        cy: number;
+    } | null>(null);
+    const [poseEstimateCurrent, setPoseEstimateCurrent] = useState<{
+        x: number;
+        y: number;
+        cx: number;
+        cy: number;
+        theta: number;
+    } | null>(null);
 
     const calibration = computeCanvasCalibration(map, resolution);
 
@@ -263,13 +280,28 @@ export function InteractiveBlueprintCanvas({
         }
 
         const pt = getSvgPointFromEvent(e);
-        if (pt) {
-            setCursorMetric(svgToMetric(pt.cx, pt.cy, snapStep, calibration));
+        if (!pt) return;
+
+        const metric = svgToMetric(pt.cx, pt.cy, snapStep, calibration);
+        setCursorMetric(metric);
+
+        if (mode === 'pose-estimate' && poseEstimateOrigin) {
+            const dx = metric.x - poseEstimateOrigin.x;
+            const dy = metric.y - poseEstimateOrigin.y;
+            // ROS 2 coordinate convention: theta in radians where +X is 0, +Y is +90 deg (pi/2)
+            const theta = Number(Math.atan2(dy, dx).toFixed(4));
+            setPoseEstimateCurrent({
+                x: metric.x,
+                y: metric.y,
+                cx: pt.cx,
+                cy: pt.cy,
+                theta,
+            });
         }
     };
 
     const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
-        if (isPanning) {
+        if (isPanning || mode === 'pose-estimate') {
             return;
         }
         const pt = getSvgPointFromEvent(e);
@@ -290,11 +322,49 @@ export function InteractiveBlueprintCanvas({
             e.preventDefault();
             setIsPanning(true);
             setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+            return;
+        }
+
+        if (mode === 'pose-estimate' && e.button === 0) {
+            e.preventDefault();
+            const pt = getSvgPointFromEvent(e);
+            if (pt) {
+                const metric = svgToMetric(pt.cx, pt.cy, snapStep, calibration);
+                setPoseEstimateOrigin({
+                    x: metric.x,
+                    y: metric.y,
+                    cx: pt.cx,
+                    cy: pt.cy,
+                });
+                setPoseEstimateCurrent({
+                    x: metric.x,
+                    y: metric.y,
+                    cx: pt.cx,
+                    cy: pt.cy,
+                    theta: 0,
+                });
+            }
         }
     };
 
     const handleMouseUp = () => {
-        setIsPanning(false);
+        if (isPanning) {
+            setIsPanning(false);
+            return;
+        }
+
+        if (mode === 'pose-estimate' && poseEstimateOrigin) {
+            const finalTheta = poseEstimateCurrent?.theta ?? 0;
+            if (onPoseEstimate) {
+                onPoseEstimate({
+                    x: poseEstimateOrigin.x,
+                    y: poseEstimateOrigin.y,
+                    theta: finalTheta,
+                });
+            }
+            setPoseEstimateOrigin(null);
+            setPoseEstimateCurrent(null);
+        }
     };
 
     const resetView = () => {
@@ -353,7 +423,7 @@ export function InteractiveBlueprintCanvas({
                     onMouseUp={handleMouseUp}
                     onClick={handleCanvasClick}
                     className={`h-full w-full drop-shadow-sm select-none ${
-                        mode === 'pick-station' || mode === 'draw-path'
+                        mode === 'pick-station' || mode === 'draw-path' || mode === 'pose-estimate'
                             ? 'cursor-crosshair'
                             : isPanning
                               ? 'cursor-grabbing'
@@ -382,6 +452,19 @@ export function InteractiveBlueprintCanvas({
                                 stopOpacity="0.9"
                             />
                         </linearGradient>
+
+                        {/* Arrow Marker for 2D Pose Estimate Arrow */}
+                        <marker
+                            id="poseEstimateArrow"
+                            viewBox="0 0 10 10"
+                            refX="6"
+                            refY="5"
+                            markerWidth="6"
+                            markerHeight="6"
+                            orient="auto-start-reverse"
+                        >
+                            <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+                        </marker>
 
                         {/* Cybernetic Blueprint Filter for Real PGM Maps */}
                         <filter
@@ -1208,6 +1291,97 @@ export function InteractiveBlueprintCanvas({
                             >
                                 [{cursorMetric.x.toFixed(2)},{' '}
                                 {cursorMetric.y.toFixed(2)}]
+                            </text>
+                        </g>
+                    )}
+
+                    {/* RViz 2D Pose Estimate Active Drag-to-Aim Arrow */}
+                    {mode === 'pose-estimate' && poseEstimateOrigin && poseEstimateCurrent && (
+                        <g className="pointer-events-none">
+                            {/* Origin Base Dot & Radial Target Radar */}
+                            <circle
+                                cx={poseEstimateOrigin.cx}
+                                cy={poseEstimateOrigin.cy}
+                                r="14"
+                                fill="#10b981"
+                                fillOpacity="0.2"
+                                stroke="#10b981"
+                                strokeWidth="2"
+                            />
+                            <circle
+                                cx={poseEstimateOrigin.cx}
+                                cy={poseEstimateOrigin.cy}
+                                r="4"
+                                fill="#10b981"
+                            />
+
+                            {/* Heading Vector Line & Arrowhead */}
+                            <line
+                                x1={poseEstimateOrigin.cx}
+                                y1={poseEstimateOrigin.cy}
+                                x2={poseEstimateCurrent.cx}
+                                y2={poseEstimateCurrent.cy}
+                                stroke="#10b981"
+                                strokeWidth="3"
+                                markerEnd="url(#poseEstimateArrow)"
+                            />
+
+                            {/* Angle Degrees HUD Badge */}
+                            <g transform={`translate(${poseEstimateCurrent.cx + 12}, ${poseEstimateCurrent.cy - 12})`}>
+                                <rect
+                                    fill="#0b1c30"
+                                    height="22"
+                                    rx="4"
+                                    width="136"
+                                    stroke="#10b981"
+                                    strokeWidth="1.5"
+                                    className="drop-shadow-md"
+                                />
+                                <text
+                                    className="font-mono text-[9px] font-bold"
+                                    fill="#6ee7b7"
+                                    x="8"
+                                    y="14"
+                                >
+                                    θ: {Math.round((poseEstimateCurrent.theta * 180) / Math.PI)}° (
+                                    {poseEstimateCurrent.theta.toFixed(2)} rad)
+                                </text>
+                            </g>
+                        </g>
+                    )}
+
+                    {/* Idle Hover Crosshair in Pose Estimate Mode */}
+                    {mode === 'pose-estimate' && !poseEstimateOrigin && (
+                        <g
+                            className="pointer-events-none"
+                            transform={`translate(${cursorSvg.cx}, ${cursorSvg.cy})`}
+                        >
+                            <circle
+                                cx="0"
+                                cy="0"
+                                fill="#10b981"
+                                fillOpacity="0.15"
+                                r="20"
+                                stroke="#10b981"
+                                strokeDasharray="3 3"
+                                strokeWidth="1.5"
+                            />
+                            <circle cx="0" cy="0" fill="#10b981" r="3.5" />
+                            <rect
+                                fill="#0b1c30"
+                                height="20"
+                                rx="3"
+                                width="128"
+                                x="12"
+                                y="-24"
+                            />
+                            <text
+                                className="font-mono text-[9px] font-bold"
+                                fill="#a7f3d0"
+                                x="16"
+                                y="-10"
+                            >
+                                DRAG ARROW: [{cursorMetric.x.toFixed(2)}, {cursorMetric.y.toFixed(2)}]
                             </text>
                         </g>
                     )}

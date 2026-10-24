@@ -316,24 +316,24 @@ export function TelemetryTopBar() {
                                 )}
                             </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-80">
-                            <DropdownMenuLabel className="flex items-center justify-between font-headline-sm text-xs tracking-wider uppercase">
+                        <DropdownMenuContent align="end" className="w-80 border-slate-200 bg-white text-on-surface shadow-xl">
+                            <DropdownMenuLabel className="flex items-center justify-between font-headline-sm text-xs tracking-wider text-on-surface uppercase">
                                 <span>Telemetry Event Feed</span>
                                 <span className="font-label-sm text-[10px] text-primary">
                                     Live
                                 </span>
                             </DropdownMenuLabel>
-                            <DropdownMenuSeparator />
+                            <DropdownMenuSeparator className="bg-slate-100" />
                             <div className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
                                 {shell.notifications.length > 0 ? (
                                     shell.notifications.map((item) => (
                                         <div
                                             key={item.id}
-                                            className="px-3 py-2.5 text-xs hover:bg-slate-50"
+                                            className="px-3 py-2.5 text-xs transition-colors hover:bg-slate-50"
                                         >
                                             <div className="flex items-center justify-between gap-2">
                                                 <span
-                                                    className={`rounded px-1.5 py-0.5 font-label-sm text-[9px] uppercase ${
+                                                    className={`rounded px-1.5 py-0.5 font-label-sm text-[9px] font-bold uppercase ${
                                                         item.level ===
                                                             'critical' ||
                                                         item.level === 'error'
@@ -341,31 +341,31 @@ export function TelemetryTopBar() {
                                                             : item.level ===
                                                                 'warning'
                                                               ? 'bg-amber-100 text-amber-700'
-                                                              : 'bg-sky-100 text-sky-700'
+                                                              : 'bg-sky-100 text-sky-800'
                                                     }`}
                                                 >
                                                     {item.level}
                                                 </span>
-                                                <span className="font-label-sm text-[10px] text-slate-400">
+                                                <span className="font-label-sm text-[10px] text-slate-500">
                                                     {item.time}
                                                 </span>
                                             </div>
-                                            <p className="mt-1 font-body-sm text-xs text-on-surface">
+                                            <p className="mt-1 font-body-sm text-xs font-medium text-slate-800">
                                                 {item.title}
                                             </p>
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="px-3 py-6 text-center text-xs text-slate-400">
+                                    <div className="px-3 py-6 text-center text-xs text-slate-500">
                                         No recent telemetry alerts
                                     </div>
                                 )}
                             </div>
-                            <DropdownMenuSeparator />
+                            <DropdownMenuSeparator className="bg-slate-100" />
                             <div className="p-1.5">
                                 <Link
                                     href="/event-logs"
-                                    className="block w-full rounded bg-surface-container-low py-1.5 text-center font-label-md text-[11px] font-semibold text-primary uppercase transition-colors hover:bg-surface-container"
+                                    className="block w-full rounded bg-surface-container-low py-1.5 text-center font-label-md text-[11px] font-bold text-primary uppercase transition-colors hover:bg-surface-container hover:text-secondary"
                                 >
                                     Open Full Event Logs →
                                 </Link>
