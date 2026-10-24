@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
     FacilityMap,
     PathCoordinate,
@@ -6,6 +6,8 @@ import type {
     Vehicle,
     Waypoint,
 } from '@/types';
+
+export type AngleConstraintMode = 'ortho-45' | 'ortho-90' | 'free';
 
 export interface InteractiveBlueprintCanvasProps {
     map?: FacilityMap | null;
@@ -18,11 +20,15 @@ export interface InteractiveBlueprintCanvasProps {
     onSelectWaypoint?: (waypoint: Waypoint) => void;
     onSelectPathplan?: (pathplan: Pathplan) => void;
     onSelectVehicle?: (vehicle: Vehicle) => void;
+    onClearSelection?: () => void;
     mode?: 'view' | 'pick-station' | 'draw-path' | 'pose-estimate';
     onPickCoordinate?: (coord: PathCoordinate) => void;
     onPoseEstimate?: (pose: { x: number; y: number; theta: number }) => void;
     draftCoordinates?: PathCoordinate[];
     onAddPathPoint?: (coord: PathCoordinate) => void;
+    onUpdatePathPoint?: (index: number, coord: PathCoordinate) => void;
+    defaultCornerRadius?: number; // in meters, default 0.8
+    angleConstraintMode?: AngleConstraintMode;
     snapStep?: number; // e.g. 0.5, 0.25, 1.0, or 0 for off
     inflationRadius?: number; // in meters, default 0.6
     showCostmap?: boolean;
@@ -181,19 +187,430 @@ export function svgToMetric(
 }
 
 /**
- * Calculates total Euclidean path length in meters.
+ * Projects rawPoint onto an orthogonal (0°/90°) or 45°-increment axis relative to prevPoint.
  */
-export function calculatePathLength(coords: PathCoordinate[]): number {
+export function applyAngleConstraint(
+    prevPoint: PathCoordinate,
+    rawPoint: { x: number; y: number },
+    constraintMode: AngleConstraintMode = 'ortho-45',
+    shiftKey = false,
+    snapStep = 0.5,
+): { x: number; y: number; angleDeg: number; lengthM: number } {
+    const dx = rawPoint.x - prevPoint.x;
+    const dy = rawPoint.y - prevPoint.y;
+    const rawDist = Math.hypot(dx, dy);
+
+    if (rawDist < 1e-4) {
+        return { x: prevPoint.x, y: prevPoint.y, angleDeg: 0, lengthM: 0 };
+    }
+
+    const effectiveMode =
+        constraintMode === 'free' && shiftKey ? 'ortho-45' : constraintMode;
+
+    let finalX = rawPoint.x;
+    let finalY = rawPoint.y;
+
+    if (effectiveMode === 'ortho-90') {
+        if (Math.abs(dx) >= Math.abs(dy)) {
+            finalX = rawPoint.x;
+            finalY = prevPoint.y;
+        } else {
+            finalX = prevPoint.x;
+            finalY = rawPoint.y;
+        }
+    } else if (effectiveMode === 'ortho-45') {
+        const theta = Math.atan2(dy, dx);
+        const sector = Math.round(theta / (Math.PI / 4)); // -4 to +4
+        const absSector = Math.abs(sector);
+
+        if (absSector === 0 || absSector === 4) {
+            finalX = rawPoint.x;
+            finalY = prevPoint.y;
+        } else if (absSector === 2) {
+            finalX = prevPoint.x;
+            finalY = rawPoint.y;
+        } else {
+            const avgDelta = (Math.abs(dx) + Math.abs(dy)) / 2;
+            const snappedDelta =
+                snapStep > 0
+                    ? Math.max(
+                          snapStep,
+                          Math.round(avgDelta / snapStep) * snapStep,
+                      )
+                    : avgDelta;
+            finalX = Number(
+                (prevPoint.x + Math.sign(dx || 1) * snappedDelta).toFixed(2),
+            );
+            finalY = Number(
+                (prevPoint.y + Math.sign(dy || 1) * snappedDelta).toFixed(2),
+            );
+        }
+    }
+
+    const fdx = finalX - prevPoint.x;
+    const fdy = finalY - prevPoint.y;
+    const lengthM = Number(Math.hypot(fdx, fdy).toFixed(2));
+    let angleDeg = Math.round((Math.atan2(fdy, fdx) * 180) / Math.PI);
+    if (angleDeg < 0) angleDeg += 360;
+
+    return {
+        x: finalX,
+        y: finalY,
+        angleDeg,
+        lengthM,
+    };
+}
+
+export interface CornerFilletSegment {
+    vertexIndex: number;
+    vertex: { x: number; y: number };
+    vertexSvg: { cx: number; cy: number };
+    tangentIn: { x: number; y: number };
+    tangentInSvg: { cx: number; cy: number };
+    tangentOut: { x: number; y: number };
+    tangentOutSvg: { cx: number; cy: number };
+    arcCenter: { x: number; y: number };
+    arcMidSvg: { cx: number; cy: number };
+    requestedRadius: number;
+    effectiveRadius: number;
+    turnAngleDeg: number;
+    arcLengthM: number;
+    sweepFlag: 0 | 1;
+    rxSvg: number;
+    rySvg: number;
+}
+
+export interface FilletedPathGeometry {
+    svgPathD: string;
+    corners: CornerFilletSegment[];
+    totalLengthM: number;
+}
+
+/**
+ * Computes G1-continuous tangential circular arc fillets at every interior vertex
+ * and builds the composite SVG path string (`M ... L ... A ...`) and true metric length.
+ */
+export function computeFilletedPathGeometry(
+    coords: PathCoordinate[],
+    defaultCornerRadius = 0.8,
+    calibration?: CanvasCalibration,
+): FilletedPathGeometry {
+    if (!coords || coords.length === 0) {
+        return { svgPathD: '', corners: [], totalLengthM: 0 };
+    }
+    if (coords.length === 1) {
+        const p0 = metricToSvg(coords[0].x, coords[0].y, calibration);
+        return {
+            svgPathD: `M ${p0.cx} ${p0.cy}`,
+            corners: [],
+            totalLengthM: 0,
+        };
+    }
+
+    const isRasterSpace =
+        calibration && (calibration.hasRasterMap || calibration.widthPx !== 460);
+    const scaleX = isRasterSpace ? calibration.pixelsPerMeterSvg : 36;
+    const scaleY = isRasterSpace ? calibration.pixelsPerMeterSvg : 22;
+
+    const corners: CornerFilletSegment[] = [];
+
+    for (let i = 1; i < coords.length - 1; i++) {
+        const prev = coords[i - 1];
+        const curr = coords[i];
+        const next = coords[i + 1];
+
+        const ux = prev.x - curr.x;
+        const uy = prev.y - curr.y;
+        const vx = next.x - curr.x;
+        const vy = next.y - curr.y;
+
+        const lenIn = Math.hypot(ux, uy);
+        const lenOut = Math.hypot(vx, vy);
+        const reqR =
+            curr.r !== undefined ? Math.max(0, curr.r) : defaultCornerRadius;
+
+        const vertexSvg = metricToSvg(curr.x, curr.y, calibration);
+
+        if (lenIn < 0.05 || lenOut < 0.05 || reqR <= 0.01) {
+            corners.push({
+                vertexIndex: i,
+                vertex: { x: curr.x, y: curr.y },
+                vertexSvg,
+                tangentIn: { x: curr.x, y: curr.y },
+                tangentInSvg: vertexSvg,
+                tangentOut: { x: curr.x, y: curr.y },
+                tangentOutSvg: vertexSvg,
+                arcCenter: { x: curr.x, y: curr.y },
+                arcMidSvg: vertexSvg,
+                requestedRadius: reqR,
+                effectiveRadius: 0,
+                turnAngleDeg: 0,
+                arcLengthM: 0,
+                sweepFlag: 0,
+                rxSvg: 0,
+                rySvg: 0,
+            });
+            continue;
+        }
+
+        const uHatX = ux / lenIn;
+        const uHatY = uy / lenIn;
+        const vHatX = vx / lenOut;
+        const vHatY = vy / lenOut;
+
+        const cosAlpha = Math.max(
+            -1,
+            Math.min(1, uHatX * vHatX + uHatY * vHatY),
+        );
+        const alpha = Math.acos(cosAlpha); // Interior angle between segments (radians)
+        const deflectionRad = Math.PI - alpha; // Turn angle (0 = straight, pi/2 = 90 deg turn)
+        const turnAngleDeg = Number(((deflectionRad * 180) / Math.PI).toFixed(1));
+
+        if (deflectionRad < 0.035 || alpha < 0.08) {
+            corners.push({
+                vertexIndex: i,
+                vertex: { x: curr.x, y: curr.y },
+                vertexSvg,
+                tangentIn: { x: curr.x, y: curr.y },
+                tangentInSvg: vertexSvg,
+                tangentOut: { x: curr.x, y: curr.y },
+                tangentOutSvg: vertexSvg,
+                arcCenter: { x: curr.x, y: curr.y },
+                arcMidSvg: vertexSvg,
+                requestedRadius: reqR,
+                effectiveRadius: 0,
+                turnAngleDeg,
+                arcLengthM: 0,
+                sweepFlag: 0,
+                rxSvg: 0,
+                rySvg: 0,
+            });
+            continue;
+        }
+
+        const halfAlpha = alpha / 2;
+        const tanHalfAlpha = Math.tan(halfAlpha);
+        const idealTangentDist = reqR / tanHalfAlpha;
+        const maxTangentDist = 0.45 * Math.min(lenIn, lenOut);
+        const tangentDist = Math.min(idealTangentDist, maxTangentDist);
+        const effectiveRadius = Number((tangentDist * tanHalfAlpha).toFixed(3));
+
+        const tIn = {
+            x: Number((curr.x + tangentDist * uHatX).toFixed(3)),
+            y: Number((curr.y + tangentDist * uHatY).toFixed(3)),
+        };
+        const tOut = {
+            x: Number((curr.x + tangentDist * vHatX).toFixed(3)),
+            y: Number((curr.y + tangentDist * vHatY).toFixed(3)),
+        };
+
+        const bx = uHatX + vHatX;
+        const by = uHatY + vHatY;
+        const bLen = Math.hypot(bx, by) || 1;
+        const bHatX = bx / bLen;
+        const bHatY = by / bLen;
+        const centerDist = Math.hypot(tangentDist, effectiveRadius);
+
+        const arcCenter = {
+            x: curr.x + centerDist * bHatX,
+            y: curr.y + centerDist * bHatY,
+        };
+        const arcMidMetric = {
+            x: arcCenter.x - effectiveRadius * bHatX,
+            y: arcCenter.y - effectiveRadius * bHatY,
+        };
+
+        // 2D cross product of incoming direction (-uHat) and outgoing direction (vHat)
+        const dInX = -uHatX;
+        const dInY = -uHatY;
+        const cross = dInX * vHatY - dInY * vHatX;
+        const sweepFlag: 0 | 1 = cross < 0 ? 1 : 0;
+
+        const tInSvg = metricToSvg(tIn.x, tIn.y, calibration);
+        const tOutSvg = metricToSvg(tOut.x, tOut.y, calibration);
+        const arcMidSvg = metricToSvg(arcMidMetric.x, arcMidMetric.y, calibration);
+
+        corners.push({
+            vertexIndex: i,
+            vertex: { x: curr.x, y: curr.y },
+            vertexSvg,
+            tangentIn: tIn,
+            tangentInSvg: tInSvg,
+            tangentOut: tOut,
+            tangentOutSvg: tOutSvg,
+            arcCenter,
+            arcMidSvg,
+            requestedRadius: reqR,
+            effectiveRadius,
+            turnAngleDeg,
+            arcLengthM: effectiveRadius * deflectionRad,
+            sweepFlag,
+            rxSvg: Number((effectiveRadius * scaleX).toFixed(2)),
+            rySvg: Number((effectiveRadius * scaleY).toFixed(2)),
+        });
+    }
+
+    const startSvg = metricToSvg(coords[0].x, coords[0].y, calibration);
+    const dParts: string[] = [`M ${startSvg.cx} ${startSvg.cy}`];
+
+    let totalLength = 0;
+    let prevExitMetric = { x: coords[0].x, y: coords[0].y };
+
+    for (const c of corners) {
+        totalLength += Math.hypot(
+            c.tangentIn.x - prevExitMetric.x,
+            c.tangentIn.y - prevExitMetric.y,
+        );
+        if (c.effectiveRadius > 0.01) {
+            dParts.push(`L ${c.tangentInSvg.cx} ${c.tangentInSvg.cy}`);
+            dParts.push(
+                `A ${c.rxSvg} ${c.rySvg} 0 0 ${c.sweepFlag} ${c.tangentOutSvg.cx} ${c.tangentOutSvg.cy}`,
+            );
+            totalLength += c.arcLengthM;
+            prevExitMetric = c.tangentOut;
+        } else {
+            dParts.push(`L ${c.vertexSvg.cx} ${c.vertexSvg.cy}`);
+            prevExitMetric = c.vertex;
+        }
+    }
+
+    const lastPt = coords[coords.length - 1];
+    const lastSvg = metricToSvg(lastPt.x, lastPt.y, calibration);
+    dParts.push(`L ${lastSvg.cx} ${lastSvg.cy}`);
+    totalLength += Math.hypot(
+        lastPt.x - prevExitMetric.x,
+        lastPt.y - prevExitMetric.y,
+    );
+
+    return {
+        svgPathD: dParts.join(' '),
+        corners,
+        totalLengthM: Number(totalLength.toFixed(2)),
+    };
+}
+
+/**
+ * Discretizes a filleted path into dense ROS 2 `nav_msgs/msg/Path` poses
+ * ({ x, y, theta, kappa }) for Pure Pursuit / Regulated Pure Pursuit controllers.
+ */
+export function discretizeFilletedPathForRos2(
+    coords: PathCoordinate[],
+    defaultCornerRadius = 0.8,
+    stepMeters = 0.15,
+): { x: number; y: number; theta: number; kappa: number }[] {
+    if (!coords || coords.length < 2) {
+        return [];
+    }
+
+    const geom = computeFilletedPathGeometry(coords, defaultCornerRadius);
+    const poses: { x: number; y: number; theta: number; kappa: number }[] = [];
+
+    const appendLineSegment = (
+        pStart: { x: number; y: number },
+        pEnd: { x: number; y: number },
+    ) => {
+        const dx = pEnd.x - pStart.x;
+        const dy = pEnd.y - pStart.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 1e-4) return;
+        const theta = Number(Math.atan2(dy, dx).toFixed(4));
+        const steps = Math.max(1, Math.ceil(dist / stepMeters));
+        for (let s = 0; s < steps; s++) {
+            const t = s / steps;
+            poses.push({
+                x: Number((pStart.x + t * dx).toFixed(3)),
+                y: Number((pStart.y + t * dy).toFixed(3)),
+                theta,
+                kappa: 0.0,
+            });
+        }
+    };
+
+    let currentPt = { x: coords[0].x, y: coords[0].y };
+
+    for (const c of geom.corners) {
+        appendLineSegment(currentPt, c.tangentIn);
+        if (c.effectiveRadius > 0.01 && c.arcLengthM > 1e-3) {
+            const phiIn = Math.atan2(
+                c.tangentIn.y - c.arcCenter.y,
+                c.tangentIn.x - c.arcCenter.x,
+            );
+            const phiOut = Math.atan2(
+                c.tangentOut.y - c.arcCenter.y,
+                c.tangentOut.x - c.arcCenter.x,
+            );
+            let dPhi = phiOut - phiIn;
+            while (dPhi > Math.PI) dPhi -= 2 * Math.PI;
+            while (dPhi <= -Math.PI) dPhi += 2 * Math.PI;
+
+            const arcSteps = Math.max(2, Math.ceil(c.arcLengthM / stepMeters));
+            const turnSign = dPhi >= 0 ? 1 : -1;
+            const kappa = Number((turnSign / c.effectiveRadius).toFixed(4));
+
+            for (let s = 0; s < arcSteps; s++) {
+                const t = s / arcSteps;
+                const phi = phiIn + t * dPhi;
+                let heading = phi + turnSign * (Math.PI / 2);
+                while (heading > Math.PI) heading -= 2 * Math.PI;
+                while (heading <= -Math.PI) heading += 2 * Math.PI;
+
+                poses.push({
+                    x: Number(
+                        (
+                            c.arcCenter.x +
+                            c.effectiveRadius * Math.cos(phi)
+                        ).toFixed(3),
+                    ),
+                    y: Number(
+                        (
+                            c.arcCenter.y +
+                            c.effectiveRadius * Math.sin(phi)
+                        ).toFixed(3),
+                    ),
+                    theta: Number(heading.toFixed(4)),
+                    kappa,
+                });
+            }
+            currentPt = c.tangentOut;
+        } else {
+            currentPt = c.vertex;
+        }
+    }
+
+    const finalPt = coords[coords.length - 1];
+    appendLineSegment(currentPt, finalPt);
+
+    const lastHeading =
+        poses.length > 0
+            ? poses[poses.length - 1].theta
+            : Number(
+                  Math.atan2(
+                      finalPt.y - coords[0].y,
+                      finalPt.x - coords[0].x,
+                  ).toFixed(4),
+              );
+    poses.push({
+        x: Number(finalPt.x.toFixed(3)),
+        y: Number(finalPt.y.toFixed(3)),
+        theta: lastHeading,
+        kappa: 0.0,
+    });
+
+    return poses;
+}
+
+/**
+ * Calculates total filleted path length in meters (straight tangents + circular arcs).
+ */
+export function calculatePathLength(
+    coords: PathCoordinate[],
+    defaultCornerRadius = 0.8,
+): number {
     if (!coords || coords.length < 2) {
         return 0;
     }
-    let total = 0;
-    for (let i = 1; i < coords.length; i++) {
-        const dx = coords[i].x - coords[i - 1].x;
-        const dy = coords[i].y - coords[i - 1].y;
-        total += Math.hypot(dx, dy);
-    }
-    return Number(total.toFixed(1));
+    const geom = computeFilletedPathGeometry(coords, defaultCornerRadius);
+    return Number(geom.totalLengthM.toFixed(1));
 }
 
 export function InteractiveBlueprintCanvas({
@@ -207,11 +624,15 @@ export function InteractiveBlueprintCanvas({
     onSelectWaypoint,
     onSelectPathplan,
     onSelectVehicle,
+    onClearSelection,
     mode = 'view',
     onPickCoordinate,
     onPoseEstimate,
     draftCoordinates = [],
     onAddPathPoint,
+    onUpdatePathPoint,
+    defaultCornerRadius = 0.8,
+    angleConstraintMode = 'ortho-45',
     snapStep = 0.5,
     inflationRadius = 0.6,
     showCostmap = true,
@@ -222,9 +643,58 @@ export function InteractiveBlueprintCanvas({
     resolution = 0.05,
     hudPosition = 'bottom-right',
 }: InteractiveBlueprintCanvasProps) {
+    const containerRef = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
     const [zoom, setZoom] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
+    const zoomRef = useRef(zoom);
+    zoomRef.current = zoom;
+    const panRef = useRef(pan);
+    panRef.current = pan;
+
+    // Intercept Ctrl + Scroll (and trackpad pinch-zoom) so that ONLY the map zooms,
+    // preventing the browser from zooming the entire dashboard web page.
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const handleWheel = (e: WheelEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+
+                const currentZoom = zoomRef.current;
+                const currentPan = panRef.current;
+
+                const factor = e.deltaY < 0 ? 1.15 : 0.85;
+                const nextZoom = Math.min(
+                    3.5,
+                    Math.max(0.5, Number((currentZoom * factor).toFixed(2))),
+                );
+
+                if (nextZoom === currentZoom) return;
+
+                const rect = container.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left - rect.width / 2;
+                const mouseY = e.clientY - rect.top - rect.height / 2;
+
+                const scaleRatio = nextZoom / currentZoom;
+                const nextPanX = Number(
+                    (mouseX - (mouseX - currentPan.x) * scaleRatio).toFixed(1),
+                );
+                const nextPanY = Number(
+                    (mouseY - (mouseY - currentPan.y) * scaleRatio).toFixed(1),
+                );
+
+                setZoom(nextZoom);
+                setPan({ x: nextPanX, y: nextPanY });
+            }
+        };
+
+        container.addEventListener('wheel', handleWheel, { passive: false });
+        return () => {
+            container.removeEventListener('wheel', handleWheel);
+        };
+    }, []);
     const [cursorMetric, setCursorMetric] = useState<{
         x: number;
         y: number;
@@ -234,6 +704,11 @@ export function InteractiveBlueprintCanvas({
         x: 0.0,
         y: 0.0,
     });
+    const [isShiftPressed, setIsShiftPressed] = useState(false);
+    const [draggingVertexIndex, setDraggingVertexIndex] = useState<
+        number | null
+    >(null);
+    const suppressNextClickRef = useRef(false);
     const [isPanning, setIsPanning] = useState(false);
     const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
@@ -261,6 +736,19 @@ export function InteractiveBlueprintCanvas({
         if (!svg) {
             return null;
         }
+
+        const ctm = svg.getScreenCTM();
+        if (ctm) {
+            const pt = svg.createSVGPoint();
+            pt.x = e.clientX;
+            pt.y = e.clientY;
+            const svgPt = pt.matrixTransform(ctm.inverse());
+            return {
+                cx: Number(svgPt.x.toFixed(2)),
+                cy: Number(svgPt.y.toFixed(2)),
+            };
+        }
+
         const rect = svg.getBoundingClientRect();
         const normX = (e.clientX - rect.left) / rect.width;
         const normY = (e.clientY - rect.top) / rect.height;
@@ -271,6 +759,8 @@ export function InteractiveBlueprintCanvas({
     };
 
     const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+        setIsShiftPressed(e.shiftKey);
+
         if (isPanning) {
             setPan({
                 x: e.clientX - panStart.x,
@@ -284,6 +774,20 @@ export function InteractiveBlueprintCanvas({
 
         const metric = svgToMetric(pt.cx, pt.cy, snapStep, calibration);
         setCursorMetric(metric);
+
+        if (
+            draggingVertexIndex !== null &&
+            onUpdatePathPoint &&
+            draftCoordinates[draggingVertexIndex]
+        ) {
+            const existing = draftCoordinates[draggingVertexIndex];
+            onUpdatePathPoint(draggingVertexIndex, {
+                ...existing,
+                x: metric.x,
+                y: metric.y,
+            });
+            return;
+        }
 
         if (mode === 'pose-estimate' && poseEstimateOrigin) {
             const dx = metric.x - poseEstimateOrigin.x;
@@ -301,7 +805,15 @@ export function InteractiveBlueprintCanvas({
     };
 
     const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
-        if (isPanning || mode === 'pose-estimate') {
+        if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+        }
+        if (
+            isPanning ||
+            draggingVertexIndex !== null ||
+            mode === 'pose-estimate'
+        ) {
             return;
         }
         const pt = getSvgPointFromEvent(e);
@@ -313,12 +825,36 @@ export function InteractiveBlueprintCanvas({
         if (mode === 'pick-station' && onPickCoordinate) {
             onPickCoordinate({ x: metric.x, y: metric.y });
         } else if (mode === 'draw-path' && onAddPathPoint) {
-            onAddPathPoint({ x: metric.x, y: metric.y });
+            if (draftCoordinates.length > 0) {
+                const constrained = applyAngleConstraint(
+                    draftCoordinates[draftCoordinates.length - 1],
+                    metric,
+                    angleConstraintMode,
+                    e.shiftKey,
+                    snapStep,
+                );
+                onAddPathPoint({
+                    x: constrained.x,
+                    y: constrained.y,
+                    r: defaultCornerRadius,
+                });
+            } else {
+                onAddPathPoint({
+                    x: metric.x,
+                    y: metric.y,
+                    r: defaultCornerRadius,
+                });
+            }
+        } else if (mode === 'view') {
+            onClearSelection?.();
         }
     };
 
     const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-        if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+        if (
+            e.button === 1 ||
+            (e.button === 0 && e.shiftKey && mode !== 'draw-path')
+        ) {
             e.preventDefault();
             setIsPanning(true);
             setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
@@ -348,6 +884,12 @@ export function InteractiveBlueprintCanvas({
     };
 
     const handleMouseUp = () => {
+        if (draggingVertexIndex !== null) {
+            setDraggingVertexIndex(null);
+            suppressNextClickRef.current = true;
+            return;
+        }
+
         if (isPanning) {
             setIsPanning(false);
             return;
@@ -372,31 +914,83 @@ export function InteractiveBlueprintCanvas({
         setPan({ x: 0, y: 0 });
     };
 
-    const cursorSvg = metricToSvg(cursorMetric.x, cursorMetric.y, calibration);
+    const constrainedDraftCursor =
+        mode === 'draw-path' &&
+        draftCoordinates.length > 0 &&
+        draggingVertexIndex === null
+            ? applyAngleConstraint(
+                  draftCoordinates[draftCoordinates.length - 1],
+                  cursorMetric,
+                  angleConstraintMode,
+                  isShiftPressed,
+                  snapStep,
+              )
+            : {
+                  x: cursorMetric.x,
+                  y: cursorMetric.y,
+                  angleDeg: 0,
+                  lengthM: 0,
+              };
+
+    const effectiveCursorMetric =
+        mode === 'draw-path' &&
+        draftCoordinates.length > 0 &&
+        draggingVertexIndex === null
+            ? {
+                  ...cursorMetric,
+                  x: constrainedDraftCursor.x,
+                  y: constrainedDraftCursor.y,
+              }
+            : cursorMetric;
+
+    const cursorSvg = metricToSvg(
+        effectiveCursorMetric.x,
+        effectiveCursorMetric.y,
+        calibration,
+    );
     const originSvg = metricToSvg(0, 0, calibration);
 
-    const activePathsToRender =
-        mode === 'draw-path' && draftCoordinates.length > 0
-            ? [
-                  ...pathplans,
-                  {
-                      id: -999,
-                      map_id: map?.id ?? 1,
-                      name: 'DRAFT-PATH',
-                      is_bidirectional: true,
-                      max_speed: 1.2,
-                      coordinates: draftCoordinates,
-                  },
-              ]
-            : pathplans;
+    const activePathsToRender = (() => {
+        if (draftCoordinates.length > 0) {
+            if (
+                selectedPathplanId !== null &&
+                pathplans.some((p) => p.id === selectedPathplanId)
+            ) {
+                return pathplans.map((p) =>
+                    p.id === selectedPathplanId
+                        ? { ...p, coordinates: draftCoordinates }
+                        : p,
+                );
+            }
+            // Retain new draft path on map before and after "Finish Pen" until saved
+            return [
+                ...pathplans,
+                {
+                    id: -999,
+                    map_id: map?.id ?? 1,
+                    name: 'DRAFT-PATH',
+                    is_bidirectional: true,
+                    max_speed: 1.2,
+                    coordinates: draftCoordinates,
+                },
+            ];
+        }
+        return pathplans;
+    })();
 
     const isRawRosMode = occupancyViewMode === 'raw';
 
     return (
         <div
+            ref={containerRef}
             className={`relative inset-0 z-0 flex h-full w-full items-center justify-center overflow-hidden select-none ${
                 isRawRosMode ? 'bg-[#d4d8dd]' : 'bg-[#f8f9ff]'
             }`}
+            onClick={(e) => {
+                if (e.target === e.currentTarget && mode === 'view') {
+                    onClearSelection?.();
+                }
+            }}
         >
             {/* Dot Matrix Coordinate Background */}
             <div
@@ -411,7 +1005,9 @@ export function InteractiveBlueprintCanvas({
 
             {/* Main Zoomable / Pannable SVG Container */}
             <div
-                className="relative flex h-full max-h-[920px] w-full max-w-[1580px] items-center justify-center p-4 transition-transform duration-150"
+                className={`relative flex h-full max-h-[920px] w-full max-w-[1580px] items-center justify-center p-4 ${
+                    isPanning ? '' : 'transition-transform duration-75 ease-out'
+                }`}
                 style={{
                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 }}
@@ -865,12 +1461,12 @@ export function InteractiveBlueprintCanvas({
                         const svgPoints = path.coordinates.map((pt) =>
                             metricToSvg(pt.x, pt.y, calibration),
                         );
-                        const d = svgPoints
-                            .map(
-                                (pt, idx) =>
-                                    `${idx === 0 ? 'M' : 'L'} ${pt.cx} ${pt.cy}`,
-                            )
-                            .join(' ');
+                        const filletedGeom = computeFilletedPathGeometry(
+                            path.coordinates,
+                            defaultCornerRadius,
+                            calibration,
+                        );
+                        const d = filletedGeom.svgPathD;
 
                         const corridorStrokeWidth = Math.max(
                             12,
@@ -925,6 +1521,16 @@ export function InteractiveBlueprintCanvas({
                                     </>
                                 )}
 
+                                {/* Invisible Wide Hitbox for Easy Clicking */}
+                                <path
+                                    d={d}
+                                    fill="none"
+                                    stroke="transparent"
+                                    strokeWidth="20"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                />
+
                                 {/* Main Centerline */}
                                 <path
                                     d={d}
@@ -958,7 +1564,84 @@ export function InteractiveBlueprintCanvas({
                                     />
                                 )}
 
-                                {/* Segment Distance Telemetry Tags & Waypoint Sequence Nodes */}
+                                {/* CAD Corner Fillet Construction Wireframe & Arc Radius Badges */}
+                                {isSelected &&
+                                    filletedGeom.corners.map((corner) => {
+                                        if (
+                                            corner.effectiveRadius <= 0.01 ||
+                                            corner.turnAngleDeg < 2
+                                        ) {
+                                            return null;
+                                        }
+                                        return (
+                                            <g
+                                                key={`${path.id}-fillet-${corner.vertexIndex}`}
+                                                className="pointer-events-none"
+                                            >
+                                                {/* Dashed Construction Tangent Legs (T_in -> Vertex -> T_out) */}
+                                                <path
+                                                    d={`M ${corner.tangentInSvg.cx} ${corner.tangentInSvg.cy} L ${corner.vertexSvg.cx} ${corner.vertexSvg.cy} L ${corner.tangentOutSvg.cx} ${corner.tangentOutSvg.cy}`}
+                                                    fill="none"
+                                                    stroke="#0284c7"
+                                                    strokeDasharray="3 3"
+                                                    strokeOpacity="0.65"
+                                                    strokeWidth="1.4"
+                                                />
+                                                {/* Highlighted Fillet Arc Curve */}
+                                                <path
+                                                    d={`M ${corner.tangentInSvg.cx} ${corner.tangentInSvg.cy} A ${corner.rxSvg} ${corner.rySvg} 0 0 ${corner.sweepFlag} ${corner.tangentOutSvg.cx} ${corner.tangentOutSvg.cy}`}
+                                                    fill="none"
+                                                    stroke="#10b981"
+                                                    strokeLinecap="round"
+                                                    strokeWidth="3.8"
+                                                />
+                                                {/* Tangent Transition Dots */}
+                                                <circle
+                                                    cx={corner.tangentInSvg.cx}
+                                                    cy={corner.tangentInSvg.cy}
+                                                    r="2.8"
+                                                    fill="#10b981"
+                                                    stroke="#ffffff"
+                                                    strokeWidth="1"
+                                                />
+                                                <circle
+                                                    cx={corner.tangentOutSvg.cx}
+                                                    cy={corner.tangentOutSvg.cy}
+                                                    r="2.8"
+                                                    fill="#10b981"
+                                                    stroke="#ffffff"
+                                                    strokeWidth="1"
+                                                />
+                                                {/* Corner Radius & Deflection Angle Badge */}
+                                                <g
+                                                    transform={`translate(${corner.arcMidSvg.cx}, ${corner.arcMidSvg.cy + 15})`}
+                                                >
+                                                    <rect
+                                                        fill="#064e3b"
+                                                        fillOpacity="0.92"
+                                                        height="14"
+                                                        rx="3"
+                                                        stroke="#10b981"
+                                                        strokeWidth="1"
+                                                        width="68"
+                                                        x="-34"
+                                                        y="-7"
+                                                    />
+                                                    <text
+                                                        className="font-mono text-[8px] font-bold"
+                                                        fill="#a7f3d0"
+                                                        textAnchor="middle"
+                                                        x="0"
+                                                        y="2.5"
+                                                    >
+                                                        R{corner.effectiveRadius.toFixed(1)}m · {Math.round(corner.turnAngleDeg)}°
+                                                    </text>
+                                                </g>
+                                            </g>
+                                        );
+                                    })}
+
+                                {/* Segment Distance Telemetry Tags & Draggable Waypoint Sequence Nodes */}
                                 {isSelected &&
                                     svgPoints.map((pt, idx) => {
                                         const isGoal =
@@ -977,11 +1660,14 @@ export function InteractiveBlueprintCanvas({
                                             : null;
                                         const prevSvg =
                                             idx > 0 ? svgPoints[idx - 1] : null;
+                                        const isBeingDragged =
+                                            draggingVertexIndex === idx;
 
                                         return (
                                             <g key={`${path.id}-pt-${idx}`}>
                                                 {prevSvg && segDist && (
                                                     <g
+                                                        className="pointer-events-none"
                                                         transform={`translate(${(pt.cx + prevSvg.cx) / 2}, ${(pt.cy + prevSvg.cy) / 2 - 10})`}
                                                     >
                                                         <rect
@@ -1005,26 +1691,51 @@ export function InteractiveBlueprintCanvas({
                                                     </g>
                                                 )}
                                                 <g
+                                                    className={
+                                                        onUpdatePathPoint
+                                                            ? 'cursor-grab active:cursor-grabbing'
+                                                            : ''
+                                                    }
                                                     transform={`translate(${pt.cx}, ${pt.cy})`}
+                                                    onMouseDown={(e) => {
+                                                        if (
+                                                            onUpdatePathPoint &&
+                                                            e.button === 0
+                                                        ) {
+                                                            e.stopPropagation();
+                                                            setDraggingVertexIndex(
+                                                                idx,
+                                                            );
+                                                        }
+                                                    }}
                                                 >
                                                     <circle
                                                         fill={
-                                                            isGoal
-                                                                ? '#16a34a'
-                                                                : '#00a3ff'
+                                                            isBeingDragged
+                                                                ? '#f59e0b'
+                                                                : isGoal
+                                                                  ? '#16a34a'
+                                                                  : '#00a3ff'
                                                         }
                                                         opacity="0.22"
-                                                        r="11"
+                                                        r={
+                                                            isBeingDragged
+                                                                ? '15'
+                                                                : '11'
+                                                        }
                                                     />
                                                     <circle
                                                         fill={
-                                                            isGoal
-                                                                ? '#16a34a'
-                                                                : '#ffffff'
+                                                            isBeingDragged
+                                                                ? '#f59e0b'
+                                                                : isGoal
+                                                                  ? '#16a34a'
+                                                                  : '#ffffff'
                                                         }
                                                         r="6"
                                                         stroke={
-                                                            isGoal
+                                                            isGoal ||
+                                                            isBeingDragged
                                                                 ? '#ffffff'
                                                                 : '#00a3ff'
                                                         }
@@ -1032,9 +1743,11 @@ export function InteractiveBlueprintCanvas({
                                                     />
                                                     <rect
                                                         fill={
-                                                            isGoal
-                                                                ? '#16a34a'
-                                                                : '#00629d'
+                                                            isBeingDragged
+                                                                ? '#d97706'
+                                                                : isGoal
+                                                                  ? '#16a34a'
+                                                                  : '#00629d'
                                                         }
                                                         height="14"
                                                         rx="3"
@@ -1258,6 +1971,125 @@ export function InteractiveBlueprintCanvas({
                         );
                     })}
 
+                    {/* Live CAD Rubberband Segment & Live Corner Fillet Preview */}
+                    {mode === 'draw-path' &&
+                        draftCoordinates.length > 0 &&
+                        draggingVertexIndex === null &&
+                        (() => {
+                            const lastPt =
+                                draftCoordinates[draftCoordinates.length - 1];
+                            const lastSvg = metricToSvg(
+                                lastPt.x,
+                                lastPt.y,
+                                calibration,
+                            );
+
+                            if (draftCoordinates.length >= 2) {
+                                const prevPt =
+                                    draftCoordinates[
+                                        draftCoordinates.length - 2
+                                    ];
+                                const liveTriplet = [
+                                    prevPt,
+                                    {
+                                        ...lastPt,
+                                        r:
+                                            lastPt.r !== undefined
+                                                ? lastPt.r
+                                                : defaultCornerRadius,
+                                    },
+                                    {
+                                        x: effectiveCursorMetric.x,
+                                        y: effectiveCursorMetric.y,
+                                        r: defaultCornerRadius,
+                                    },
+                                ];
+                                const liveGeom = computeFilletedPathGeometry(
+                                    liveTriplet,
+                                    defaultCornerRadius,
+                                    calibration,
+                                );
+                                const liveCorner = liveGeom.corners[0];
+
+                                if (
+                                    liveCorner &&
+                                    liveCorner.effectiveRadius > 0.01 &&
+                                    liveCorner.turnAngleDeg >= 2
+                                ) {
+                                    return (
+                                        <g className="pointer-events-none">
+                                            {/* Dashed Tangent Construction Wireframe at Active Corner */}
+                                            <path
+                                                d={`M ${liveCorner.tangentInSvg.cx} ${liveCorner.tangentInSvg.cy} L ${liveCorner.vertexSvg.cx} ${liveCorner.vertexSvg.cy} L ${cursorSvg.cx} ${cursorSvg.cy}`}
+                                                fill="none"
+                                                stroke="#94a3b8"
+                                                strokeDasharray="3 3"
+                                                strokeWidth="1.3"
+                                            />
+                                            {/* Live Smooth Fillet Arc & Outgoing Tangent Segment */}
+                                            <path
+                                                d={`M ${liveCorner.tangentInSvg.cx} ${liveCorner.tangentInSvg.cy} A ${liveCorner.rxSvg} ${liveCorner.rySvg} 0 0 ${liveCorner.sweepFlag} ${liveCorner.tangentOutSvg.cx} ${liveCorner.tangentOutSvg.cy} L ${cursorSvg.cx} ${cursorSvg.cy}`}
+                                                fill="none"
+                                                stroke="#10b981"
+                                                strokeDasharray="6 3"
+                                                strokeLinecap="round"
+                                                strokeWidth="2.6"
+                                            />
+                                            <circle
+                                                cx={liveCorner.tangentInSvg.cx}
+                                                cy={liveCorner.tangentInSvg.cy}
+                                                r="3"
+                                                fill="#10b981"
+                                            />
+                                            <circle
+                                                cx={liveCorner.tangentOutSvg.cx}
+                                                cy={liveCorner.tangentOutSvg.cy}
+                                                r="3"
+                                                fill="#10b981"
+                                            />
+                                            {/* Live Corner Fillet Preview Badge */}
+                                            <g
+                                                transform={`translate(${liveCorner.arcMidSvg.cx}, ${liveCorner.arcMidSvg.cy - 14})`}
+                                            >
+                                                <rect
+                                                    fill="#064e3b"
+                                                    height="15"
+                                                    rx="3"
+                                                    stroke="#10b981"
+                                                    strokeWidth="1"
+                                                    width="78"
+                                                    x="-39"
+                                                    y="-8"
+                                                />
+                                                <text
+                                                    className="font-mono text-[8px] font-bold"
+                                                    fill="#6ee7b7"
+                                                    textAnchor="middle"
+                                                    x="0"
+                                                    y="2.5"
+                                                >
+                                                    ARC R{liveCorner.effectiveRadius.toFixed(1)}m · {Math.round(liveCorner.turnAngleDeg)}°
+                                                </text>
+                                            </g>
+                                        </g>
+                                    );
+                                }
+                            }
+
+                            return (
+                                <line
+                                    x1={lastSvg.cx}
+                                    y1={lastSvg.cy}
+                                    x2={cursorSvg.cx}
+                                    y2={cursorSvg.cy}
+                                    stroke="#00a3ff"
+                                    strokeWidth="2"
+                                    strokeDasharray="4 4"
+                                    className="pointer-events-none opacity-80"
+                                />
+                            );
+                        })()}
+
                     {/* Interactive Placement Ghost Crosshair */}
                     {(mode === 'pick-station' || mode === 'draw-path') && (
                         <g
@@ -1277,21 +2109,57 @@ export function InteractiveBlueprintCanvas({
                             <circle cx="0" cy="0" fill="#00a3ff" r="4" />
                             <rect
                                 fill="#0b1c30"
-                                height="18"
+                                height={
+                                    mode === 'draw-path'
+                                        ? '30'
+                                        : '18'
+                                }
                                 rx="3"
-                                width="92"
+                                width={
+                                    mode === 'draw-path'
+                                        ? '148'
+                                        : '92'
+                                }
                                 x="12"
-                                y="-22"
+                                y={
+                                    mode === 'draw-path'
+                                        ? '-32'
+                                        : '-22'
+                                }
                             />
                             <text
                                 className="font-mono text-[9px] font-bold"
                                 fill="#98cbff"
                                 x="18"
-                                y="-10"
+                                y={
+                                    mode === 'draw-path'
+                                        ? '-20'
+                                        : '-10'
+                                }
                             >
-                                [{cursorMetric.x.toFixed(2)},{' '}
-                                {cursorMetric.y.toFixed(2)}]
+                                [{effectiveCursorMetric.x.toFixed(2)},{' '}
+                                {effectiveCursorMetric.y.toFixed(2)}]
                             </text>
+                            {mode === 'draw-path' &&
+                                (draftCoordinates.length > 0 ? (
+                                    <text
+                                        className="font-mono text-[8px] font-semibold"
+                                        fill="#6ee7b7"
+                                        x="18"
+                                        y="-8"
+                                    >
+                                        L:{constrainedDraftCursor.lengthM.toFixed(1)}m | ∠{constrainedDraftCursor.angleDeg}° | R:{defaultCornerRadius.toFixed(1)}m
+                                    </text>
+                                ) : (
+                                    <text
+                                        className="font-mono text-[8px] font-semibold"
+                                        fill="#6ee7b7"
+                                        x="18"
+                                        y="-8"
+                                    >
+                                        Click map to place WP-1 (Start)
+                                    </text>
+                                ))}
                         </g>
                     )}
 
@@ -1437,10 +2305,10 @@ export function InteractiveBlueprintCanvas({
                         type="button"
                         onClick={() =>
                             setZoom((z) =>
-                                Math.min(2.5, Number((z + 0.2).toFixed(2))),
+                                Math.min(3.5, Number((z + 0.2).toFixed(2))),
                             )
                         }
-                        title="Zoom In"
+                        title="Zoom In (or Ctrl + Scroll Up)"
                         className="flex h-7 w-7 cursor-pointer items-center justify-center rounded hover:bg-surface-container"
                     >
                         <span className="material-symbols-outlined text-[17px]">
@@ -1454,10 +2322,10 @@ export function InteractiveBlueprintCanvas({
                         type="button"
                         onClick={() =>
                             setZoom((z) =>
-                                Math.max(0.6, Number((z - 0.2).toFixed(2))),
+                                Math.max(0.5, Number((z - 0.2).toFixed(2))),
                             )
                         }
-                        title="Zoom Out"
+                        title="Zoom Out (or Ctrl + Scroll Down)"
                         className="flex h-7 w-7 cursor-pointer items-center justify-center rounded hover:bg-surface-container"
                     >
                         <span className="material-symbols-outlined text-[17px]">

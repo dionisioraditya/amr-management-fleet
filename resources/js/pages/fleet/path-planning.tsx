@@ -2,7 +2,10 @@ import { Head, router } from '@inertiajs/react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import {
+    type AngleConstraintMode,
     calculatePathLength,
+    computeFilletedPathGeometry,
+    discretizeFilletedPathForRos2,
     InteractiveBlueprintCanvas,
 } from '@/components/fleet/interactive-blueprint-canvas';
 import { StatusBadge } from '@/components/fleet/status-badge';
@@ -24,10 +27,15 @@ export default function PathPlanningPage({
         pathplans[0] ?? null,
     );
     const [isDrawing, setIsDrawing] = useState(false);
-    const [editingPathId, setEditingPathId] = useState<number | null>(null);
-    const [cadTool, setCadTool] = useState<
-        'spline' | 'linear' | 'waypoint' | 'keepout'
-    >('spline');
+    const [editingPathId, setEditingPathId] = useState<number | null>(
+        pathplans[0]?.id ?? null,
+    );
+    const [curveMode, setCurveMode] = useState<'fillet' | 'linear'>('fillet');
+    const [angleConstraintMode, setAngleConstraintMode] =
+        useState<AngleConstraintMode>('ortho-45');
+    const [cornerRadius, setCornerRadius] = useState<number>(
+        pathplans[0]?.coordinates?.[1]?.r ?? 0.8,
+    );
     const [snapEnabled, setSnapEnabled] = useState(true);
     const [showCostmap, setShowCostmap] = useState(true);
     const [flowFilter, setFlowFilter] = useState<'all' | 'bi' | 'uni'>('all');
@@ -47,13 +55,11 @@ export default function PathPlanningPage({
     );
     const [inflationCorridor, setInflationCorridor] = useState(0.6);
     const [draftCoords, setDraftCoords] = useState<PathCoordinate[]>(
-        pathplans[0]?.coordinates ?? [
-            { x: 2.5, y: 3.0 },
-            { x: 12.0, y: 3.0 },
-            { x: 12.0, y: 8.5 },
-        ],
+        pathplans[0]?.coordinates ?? [],
     );
     const [saving, setSaving] = useState(false);
+
+    const effectiveCornerRadius = curveMode === 'linear' ? 0 : cornerRadius;
 
     const selectExistingPath = (path: Pathplan) => {
         setSelectedPath(path);
@@ -63,7 +69,16 @@ export default function PathPlanningPage({
         setFormDescription(path.description ?? '');
         setFormBidirectional(path.is_bidirectional);
         setFormMaxSpeed(path.max_speed);
-        setDraftCoords(path.coordinates ?? []);
+        const coords = path.coordinates ?? [];
+        setDraftCoords(coords);
+        const existingRadius = coords.find(
+            (pt, idx) =>
+                idx > 0 && idx < coords.length - 1 && pt.r !== undefined,
+        )?.r;
+        if (existingRadius !== undefined) {
+            setCornerRadius(existingRadius);
+            setCurveMode(existingRadius <= 0.01 ? 'linear' : 'fillet');
+        }
     };
 
     const startNewPathMode = () => {
@@ -71,30 +86,77 @@ export default function PathPlanningPage({
         setEditingPathId(null);
         setSelectedPath(null);
         setFormName(`PATH-CORRIDOR-0${pathplans.length + 1}`);
-        setFormDescription('Autonomous AMR transit lane');
+        setFormDescription('Autonomous AMR virtual guidance lane');
         setFormBidirectional(true);
         setFormMaxSpeed(1.2);
-        setDraftCoords([
-            { x: 2.5, y: 3.0 },
-            { x: 8.0, y: 3.0 },
-        ]);
+        setDraftCoords([]);
         toast.info(
-            'Path Draw Mode Active: Click on the map or stations to append route waypoints.',
+            'Guidance Pen Active: Click anywhere on the map or click a station to place WP-1 (Start node).',
         );
     };
 
     const startEditPathMode = (path: Pathplan) => {
         selectExistingPath(path);
         setIsDrawing(true);
-        toast.info(`Editing ${path.name}. Click map to append waypoints.`);
+        toast.info(
+            `Editing ${path.name}. Drag existing vertices or click map to append segments.`,
+        );
     };
 
     const handleAddPathPoint = (coord: PathCoordinate) => {
-        setDraftCoords((prev) => [...prev, coord]);
+        const activeR = curveMode === 'linear' ? 0 : cornerRadius;
+        setDraftCoords((prev) => [
+            ...prev,
+            { x: coord.x, y: coord.y, r: coord.r ?? activeR },
+        ]);
+    };
+
+    const handleUpdatePathPoint = (index: number, coord: PathCoordinate) => {
+        setDraftCoords((prev) =>
+            prev.map((pt, i) => (i === index ? coord : pt)),
+        );
+    };
+
+    const handleRemovePathPoint = (index: number) => {
+        setDraftCoords((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    const handleClearAllPoints = () => {
+        setDraftCoords([]);
+        toast.info(
+            'Cleared all path vertices. Click anywhere on the map to place WP-1.',
+        );
+    };
+
+    const handleReverseDirection = () => {
+        setDraftCoords((prev) => [...prev].reverse());
+        toast.success('Reversed trajectory vertex sequence.');
+    };
+
+    const handleGlobalCornerRadiusChange = (newRadius: number) => {
+        setCornerRadius(newRadius);
+        if (newRadius <= 0.01) {
+            setCurveMode('linear');
+        } else if (curveMode === 'linear') {
+            setCurveMode('fillet');
+        }
+        setDraftCoords((prev) =>
+            prev.map((pt) => ({
+                ...pt,
+                r: newRadius,
+            })),
+        );
     };
 
     const handleUndoLastPoint = () => {
-        setDraftCoords((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
+        setDraftCoords((prev) => prev.slice(0, -1));
+    };
+
+    const handleClearSelection = () => {
+        if (isDrawing) return;
+        setSelectedPath(null);
+        setEditingPathId(null);
+        setDraftCoords([]);
     };
 
     const handleSavePathplan = async () => {
@@ -179,17 +241,28 @@ export default function PathPlanningPage({
     };
 
     const handleExportYaml = (path: Pathplan) => {
+        const densePoses = discretizeFilletedPathForRos2(
+            path.coordinates ?? [],
+            effectiveCornerRadius,
+            0.15,
+        );
         const yamlContent = [
-            `# ROS 2 Nav2 Pathplan Trajectory Export`,
+            `# ROS 2 Nav2 Virtual Guidance Path & Fillet Trajectory Export`,
             `path_name: "${path.name}"`,
             `map_id: ${path.map_id}`,
             `is_bidirectional: ${path.is_bidirectional}`,
             `max_linear_velocity: ${path.max_speed}`,
+            `default_corner_fillet_radius_m: ${effectiveCornerRadius}`,
             `safety_inflation_corridor_m: ${inflationCorridor}`,
-            `waypoints:`,
+            `control_vertices:`,
             ...(path.coordinates ?? []).map(
                 (pt, i) =>
-                    `  - index: ${i}\n    x: ${pt.x}\n    y: ${pt.y}\n    theta: 0.0`,
+                    `  - index: ${i}\n    x: ${pt.x}\n    y: ${pt.y}\n    corner_radius_m: ${pt.r ?? effectiveCornerRadius}`,
+            ),
+            `discretized_nav2_poses:`,
+            ...densePoses.map(
+                (pose, i) =>
+                    `  - seq: ${i}\n    x: ${pose.x}\n    y: ${pose.y}\n    theta: ${pose.theta}\n    curvature_k: ${pose.kappa}`,
             ),
         ].join('\n');
 
@@ -200,7 +273,9 @@ export default function PathPlanningPage({
         a.download = `${path.name.toLowerCase().replace(/\s+/g, '_')}_nav2.yaml`;
         a.click();
         URL.revokeObjectURL(url);
-        toast.success(`Exported ${path.name} YAML configuration.`);
+        toast.success(
+            `Exported ${path.name} YAML (${densePoses.length} interpolated Nav2 poses).`,
+        );
     };
 
     const filteredPaths = pathplans.filter((p) => {
@@ -217,13 +292,22 @@ export default function PathPlanningPage({
         pathplans.length > 0
             ? (
                   pathplans.reduce(
-                      (acc, p) => acc + calculatePathLength(p.coordinates),
+                      (acc, p) =>
+                          acc +
+                          calculatePathLength(
+                              p.coordinates,
+                              effectiveCornerRadius,
+                          ),
                       0,
                   ) / pathplans.length
               ).toFixed(1)
             : '0.0';
 
-    const activeLength = calculatePathLength(draftCoords);
+    const activeFilletGeom = computeFilletedPathGeometry(
+        draftCoords,
+        effectiveCornerRadius,
+    );
+    const activeLength = Number(activeFilletGeom.totalLengthM.toFixed(1));
 
     return (
         <>
@@ -237,9 +321,13 @@ export default function PathPlanningPage({
                         pathplans={pathplans}
                         selectedPathplanId={selectedPath?.id ?? null}
                         onSelectPathplan={selectExistingPath}
+                        onClearSelection={handleClearSelection}
                         mode={isDrawing ? 'draw-path' : 'view'}
                         draftCoordinates={draftCoords}
                         onAddPathPoint={handleAddPathPoint}
+                        onUpdatePathPoint={handleUpdatePathPoint}
+                        defaultCornerRadius={effectiveCornerRadius}
+                        angleConstraintMode={angleConstraintMode}
                         snapStep={snapEnabled ? 0.5 : 0}
                         inflationRadius={inflationCorridor}
                         showCostmap={showCostmap}
@@ -282,33 +370,53 @@ export default function PathPlanningPage({
 
                 {/* Active Drawing Mode Floating Banner */}
                 {isDrawing && (
-                    <div className="pointer-events-auto absolute top-4 left-[580px] z-30 flex animate-pulse items-center gap-space-md rounded-xl bg-on-background/95 px-space-lg py-space-sm text-surface-container-lowest shadow-lg backdrop-blur-md">
-                        <span className="material-symbols-outlined text-[20px] text-primary-container">
-                            edit_location
+                    <div className="pointer-events-auto absolute top-4 left-[580px] z-30 flex items-center gap-space-md rounded-xl bg-on-background/95 px-space-lg py-space-sm text-surface-container-lowest shadow-lg backdrop-blur-md">
+                        <span className="material-symbols-outlined text-[20px] text-emerald-400">
+                            gesture
                         </span>
                         <div className="flex flex-col">
                             <span className="font-headline-sm text-headline-sm tracking-tight text-white uppercase">
-                                Path Draw Mode Active ({draftCoords.length}{' '}
-                                WPs)
+                                {draftCoords.length === 0
+                                    ? 'Guidance Pen Active (Click map to place WP-1)'
+                                    : `Guidance Pen Active (${draftCoords.length} Nodes · R=${effectiveCornerRadius.toFixed(1)}m)`}
                             </span>
                             <span className="font-label-sm text-label-sm text-outline-variant">
-                                Click on the map or stations to append route
-                                waypoints.
+                                {draftCoords.length === 0
+                                    ? 'Click anywhere on the blueprint map to start your trajectory corridor.'
+                                    : `Angle Lock: ${
+                                          angleConstraintMode === 'ortho-45'
+                                              ? '0° / 45° / 90°'
+                                              : angleConstraintMode ===
+                                                  'ortho-90'
+                                                ? 'Horizontal / Vertical Only'
+                                                : 'Free (Hold Shift for 45°)'
+                                      } · Drag nodes to adjust.`}
                             </span>
                         </div>
-                        <button
-                            type="button"
-                            onClick={handleUndoLastPoint}
-                            className="cursor-pointer rounded bg-white/15 px-2.5 py-1 font-label-sm text-label-sm text-white uppercase hover:bg-white/25"
-                        >
-                            Undo WP
-                        </button>
+                        {draftCoords.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={handleUndoLastPoint}
+                                className="cursor-pointer rounded bg-white/15 px-2.5 py-1 font-label-sm text-label-sm text-white uppercase hover:bg-white/25"
+                            >
+                                Undo Node
+                            </button>
+                        )}
+                        {draftCoords.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={handleClearAllPoints}
+                                className="cursor-pointer rounded bg-white/15 px-2 py-1 font-label-sm text-label-sm text-rose-300 uppercase hover:bg-rose-500/30"
+                            >
+                                Clear
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={() => setIsDrawing(false)}
                             className="cursor-pointer rounded bg-primary-container px-3 py-1 font-label-sm text-label-sm font-bold text-on-primary-container uppercase"
                         >
-                            Finish Draw
+                            Finish Pen
                         </button>
                     </div>
                 )}
@@ -332,8 +440,9 @@ export default function PathPlanningPage({
                                         Path Planning
                                     </h1>
                                     <p className="font-body-sm text-body-sm text-tertiary">
-                                        Configure Nav2 transit lanes, spline
-                                        trajectories, and velocity limits.
+                                        Configure virtual guidance tracks,
+                                        tangential corner fillets, and velocity
+                                        limits.
                                     </p>
                                 </div>
                                 <button
@@ -413,82 +522,140 @@ export default function PathPlanningPage({
 
                             <div className="rounded-xl border border-slate-200/80 bg-white p-space-sm shadow-xs">
                                 <div className="font-label-sm text-label-sm text-tertiary">
-                                    CLEARANCE
+                                    CORNER R
                                 </div>
-                                <div className="mt-0.5 font-headline-md text-headline-md font-bold text-on-surface">
-                                    100
-                                    <span className="text-xs font-normal">%</span>
+                                <div className="mt-0.5 font-headline-md text-headline-md font-bold text-emerald-700">
+                                    {effectiveCornerRadius.toFixed(1)}
+                                    <span className="text-xs font-normal">m</span>
                                 </div>
                                 <div className="flex items-center gap-0.5 font-label-sm text-label-sm font-semibold text-emerald-600">
                                     <span className="material-symbols-outlined text-[12px]">
-                                        check_circle
+                                        rounded_corner
                                     </span>{' '}
-                                    Safe
+                                    {curveMode === 'fillet'
+                                        ? 'G1 Arc'
+                                        : 'Sharp'}
                                 </div>
                             </div>
                         </div>
 
-                        {/* Card 3: Interactive Drawing & CAD Toolbar */}
+                        {/* Card 3: Interactive Drawing & CAD Guideway Toolbar */}
                         <div className="rounded-xl border border-slate-200/80 bg-white p-space-md shadow-xs">
                             <div className="mb-space-xs flex items-center justify-between">
-                                <span className="font-label-sm text-label-sm tracking-wider text-tertiary uppercase">
-                                    CAD Path Geometry Tools
+                                <span className="font-label-sm text-label-sm font-semibold tracking-wider text-tertiary uppercase">
+                                    CAD Guideway & Angle Constraint Tools
                                 </span>
-                                <span className="font-label-sm text-label-sm text-primary">
-                                    Grid Snap: {snapEnabled ? '0.5m Active' : 'Off'}
-                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setSnapEnabled((s) => !s)}
+                                    className="cursor-pointer font-mono text-[10px] font-bold text-primary hover:underline"
+                                >
+                                    Grid Snap: {snapEnabled ? '0.5m ON' : 'OFF'}
+                                </button>
                             </div>
-                            <div className="flex flex-wrap items-center gap-space-xs">
+
+                            {/* Row 1: Corner Transition Mode (Fillet Arc vs Linear) */}
+                            <div className="mb-2 grid grid-cols-2 gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCurveMode('fillet');
+                                        const nextR =
+                                            cornerRadius <= 0.01
+                                                ? 0.8
+                                                : cornerRadius;
+                                        handleGlobalCornerRadiusChange(nextR);
+                                    }}
+                                    className={`flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 font-label-sm text-xs transition-all ${
+                                        curveMode === 'fillet'
+                                            ? 'bg-emerald-600 font-semibold text-white shadow-2xs'
+                                            : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container'
+                                    }`}
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">
+                                        rounded_corner
+                                    </span>
+                                    <span>
+                                        Fillet Arc (R={cornerRadius.toFixed(1)}m)
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCurveMode('linear');
+                                        setDraftCoords((prev) =>
+                                            prev.map((pt) => ({ ...pt, r: 0 })),
+                                        );
+                                    }}
+                                    className={`flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 font-label-sm text-xs transition-all ${
+                                        curveMode === 'linear'
+                                            ? 'bg-primary-fixed font-semibold text-on-primary-fixed shadow-2xs'
+                                            : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container'
+                                    }`}
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">
+                                        polyline
+                                    </span>
+                                    <span>Linear 0° Pivot (Sharp)</span>
+                                </button>
+                            </div>
+
+                            {/* Row 2: Pen Angle Lock Constraint (Horizontal / Vertical / 45° Diagonal) */}
+                            <div className="grid grid-cols-3 gap-1.5">
                                 {(
                                     [
                                         {
-                                            id: 'spline',
-                                            label: 'Spline Curve (S)',
-                                            icon: 'timeline',
+                                            id: 'ortho-45',
+                                            label: 'Ortho + 45°',
+                                            sub: '0° / 45° / 90°',
+                                            icon: 'architecture',
                                         },
                                         {
-                                            id: 'linear',
-                                            label: 'Linear (L)',
-                                            icon: 'straighten',
+                                            id: 'ortho-90',
+                                            label: 'Ortho 90°',
+                                            sub: 'H / V Aisles',
+                                            icon: 'grid_goldenratio',
                                         },
                                         {
-                                            id: 'waypoint',
-                                            label: 'Add Point (W)',
-                                            icon: 'add_location',
-                                        },
-                                        {
-                                            id: 'keepout',
-                                            label: 'Keep-Out (K)',
-                                            icon: 'block',
+                                            id: 'free',
+                                            label: 'Free Vector',
+                                            sub: 'Any Angle',
+                                            icon: 'gesture',
                                         },
                                     ] as const
-                                ).map((tool) => (
+                                ).map((modeItem) => (
                                     <button
-                                        key={tool.id}
+                                        key={modeItem.id}
                                         type="button"
                                         onClick={() => {
-                                            setCadTool(tool.id);
-                                            if (tool.id === 'waypoint') {
+                                            setAngleConstraintMode(modeItem.id);
+                                            if (!isDrawing) {
                                                 setIsDrawing(true);
                                             }
                                         }}
-                                        className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-space-md py-1.5 font-label-sm text-label-sm transition-all ${
-                                            cadTool === tool.id
-                                                ? 'bg-primary-fixed font-semibold text-on-primary-fixed shadow-2xs'
-                                                : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container'
+                                        className={`flex cursor-pointer flex-col items-start rounded-lg border px-2.5 py-1.5 text-left transition-all ${
+                                            angleConstraintMode === modeItem.id
+                                                ? 'border-primary bg-primary-fixed/80 text-on-primary-fixed shadow-2xs'
+                                                : 'border-slate-200/70 bg-surface-container-low text-on-surface-variant hover:bg-surface-container'
                                         }`}
                                     >
-                                        <span className="material-symbols-outlined text-[15px]">
-                                            {tool.icon}
+                                        <div className="flex items-center gap-1 font-label-sm text-[11px] font-bold">
+                                            <span className="material-symbols-outlined text-[14px]">
+                                                {modeItem.icon}
+                                            </span>
+                                            <span>{modeItem.label}</span>
+                                        </div>
+                                        <span className="font-mono text-[9px] opacity-75">
+                                            {modeItem.sub}
                                         </span>
-                                        <span>{tool.label}</span>
                                     </button>
                                 ))}
                             </div>
                         </div>
 
-                        {/* Card 4: Active Path Inspector / Detailed Waypoint Controller */}
-                        <div className="rounded-xl border border-slate-200/80 bg-white p-space-lg shadow-xs">
+                        {/* Card 4: Active Path Inspector or Neutral State Prompt */}
+                        {selectedPath || isDrawing || draftCoords.length > 0 ? (
+                            <div className="rounded-xl border border-slate-200/80 bg-white p-space-lg shadow-xs">
                             <div className="mb-space-md flex items-start justify-between">
                                 <div className="flex items-center gap-space-sm">
                                     <span className="h-3 w-3 rounded-full bg-primary-container ring-4 ring-primary-container/20" />
@@ -509,19 +676,40 @@ export default function PathPlanningPage({
                                         </span>
                                     </div>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsDrawing((d) => !d)}
-                                    className={`cursor-pointer rounded-lg px-2.5 py-1 font-label-sm text-[10px] font-bold uppercase transition-all ${
-                                        isDrawing
-                                            ? 'bg-primary-container text-on-primary-container'
-                                            : 'bg-white text-primary shadow-2xs hover:bg-surface-container'
-                                    }`}
-                                >
-                                    {isDrawing
-                                        ? '✓ Drawing Active'
-                                        : 'Draw on Map'}
-                                </button>
+                                <div className="flex items-center gap-1.5">
+                                    {draftCoords.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={handleClearAllPoints}
+                                            title="Clear All Vertices"
+                                            className="cursor-pointer rounded-lg border border-slate-200 bg-surface-container-low px-2 py-1 font-label-sm text-[10px] font-semibold text-rose-600 uppercase hover:bg-rose-50"
+                                        >
+                                            Clear
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        disabled={draftCoords.length < 2}
+                                        onClick={handleReverseDirection}
+                                        title="Reverse Vertex Order (Flip Flow Direction)"
+                                        className="cursor-pointer rounded-lg border border-slate-200 bg-surface-container-low px-2 py-1 font-label-sm text-[10px] font-semibold text-on-surface uppercase hover:bg-surface-container disabled:opacity-40"
+                                    >
+                                        ⇄ Reverse
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsDrawing((d) => !d)}
+                                        className={`cursor-pointer rounded-lg px-2.5 py-1 font-label-sm text-[10px] font-bold uppercase transition-all ${
+                                            isDrawing
+                                                ? 'bg-primary-container text-on-primary-container'
+                                                : 'bg-primary text-white shadow-2xs hover:bg-on-primary-fixed-variant'
+                                        }`}
+                                    >
+                                        {isDrawing
+                                            ? '✓ Pen Active'
+                                            : '+ Pen Draw'}
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Editable Name & Description Fields */}
@@ -564,54 +752,168 @@ export default function PathPlanningPage({
                                 </div>
                             </div>
 
-                            {/* Waypoint Sequence Strip Pill */}
+                            {/* Waypoint / Vertex Sequence Strip with Corner Fillet Diagnostics */}
                             <div className="mb-space-md rounded-lg bg-surface-container-lowest p-space-sm">
                                 <div className="mb-space-xs flex items-center justify-between font-label-sm text-label-sm text-tertiary">
                                     <span>
-                                        WAYPOINT SEQUENCE ({draftCoords.length}{' '}
-                                        NODES)
+                                        GUIDEWAY VERTICES ({draftCoords.length}{' '}
+                                        NODES ·{' '}
+                                        {
+                                            activeFilletGeom.corners.filter(
+                                                (c) => c.effectiveRadius > 0.01,
+                                            ).length
+                                        }{' '}
+                                        ARCS)
                                     </span>
-                                    <span className="font-semibold text-primary">
-                                        Length: {activeLength}m
+                                    <span className="font-mono font-semibold text-primary">
+                                        Arc Length: {activeLength}m
                                     </span>
                                 </div>
-                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                                    {draftCoords.map((pt, idx) => {
-                                        const isStart = idx === 0;
-                                        const isGoal =
-                                            idx === draftCoords.length - 1 &&
-                                            draftCoords.length > 1;
-                                        return (
-                                            <div
-                                                key={idx}
-                                                className="flex shrink-0 items-center gap-1"
-                                            >
-                                                <span
-                                                    className={`rounded px-2 py-1 font-mono text-[10px] font-bold ${
-                                                        isStart
-                                                            ? 'bg-primary-container text-white'
-                                                            : isGoal
-                                                              ? 'bg-emerald-600 text-white'
-                                                              : 'bg-surface-container text-on-surface'
-                                                    }`}
+                                {draftCoords.length === 0 ? (
+                                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300/90 bg-white/60 p-3 text-xs text-on-surface-variant">
+                                        <span className="material-symbols-outlined text-[18px] text-primary">
+                                            add_location
+                                        </span>
+                                        <span>
+                                            No vertices placed yet. Click anywhere on the map or click a station to place <strong>WP-1 (Start node)</strong>.
+                                        </span>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                                        {draftCoords.map((pt, idx) => {
+                                            const isStart = idx === 0;
+                                            const isGoal =
+                                                idx === draftCoords.length - 1 &&
+                                                draftCoords.length > 1;
+                                            const cornerInfo =
+                                                activeFilletGeom.corners.find(
+                                                    (c) => c.vertexIndex === idx,
+                                                );
+                                            return (
+                                                <div
+                                                    key={idx}
+                                                    className="flex shrink-0 items-center gap-1"
                                                 >
-                                                    WP-{idx + 1} [{pt.x},{' '}
-                                                    {pt.y}]
-                                                </span>
-                                                {idx <
-                                                    draftCoords.length - 1 && (
-                                                    <span className="material-symbols-outlined text-[13px] text-tertiary">
-                                                        arrow_forward
-                                                    </span>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                                    <div
+                                                        className={`flex items-center gap-1 rounded px-2 py-1 font-mono text-[10px] font-bold ${
+                                                            isStart
+                                                                ? 'bg-primary-container text-white'
+                                                                : isGoal
+                                                                  ? 'bg-emerald-600 text-white'
+                                                                  : 'border border-slate-200 bg-surface-container text-on-surface'
+                                                        }`}
+                                                    >
+                                                        <span>
+                                                            WP-{idx + 1} [{pt.x},{' '}
+                                                            {pt.y}]
+                                                        </span>
+                                                        {cornerInfo &&
+                                                            cornerInfo.effectiveRadius >
+                                                                0.01 && (
+                                                                <span className="rounded bg-emerald-950/80 px-1 py-0.2 text-[9px] text-emerald-300">
+                                                                    R
+                                                                    {cornerInfo.effectiveRadius.toFixed(
+                                                                        1,
+                                                                    )}
+                                                                    m·
+                                                                    {Math.round(
+                                                                        cornerInfo.turnAngleDeg,
+                                                                    )}
+                                                                    °
+                                                                </span>
+                                                            )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handleRemovePathPoint(
+                                                                    idx,
+                                                                )
+                                                            }
+                                                            title={`Delete WP-${idx + 1}`}
+                                                            className="ml-0.5 cursor-pointer rounded px-1 text-[10px] opacity-75 hover:bg-black/20 hover:opacity-100"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    </div>
+                                                    {idx <
+                                                        draftCoords.length - 1 && (
+                                                        <span className="material-symbols-outlined text-[13px] text-tertiary">
+                                                            arrow_forward
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Slider Tuning: Inflation corridor & Max Speed */}
-                            <div className="mb-space-md space-y-2.5 rounded-lg bg-surface-container-lowest p-space-sm">
+                            {/* Slider Tuning: Corner Turning Radius (R), Inflation Corridor & Max Speed */}
+                            <div className="mb-space-md space-y-3 rounded-lg bg-surface-container-lowest p-space-sm">
+                                {/* Corner Turning Radius (Fillet R) */}
+                                <div>
+                                    <div className="flex items-center justify-between font-label-sm text-label-sm">
+                                        <span className="flex items-center gap-1 font-semibold text-emerald-700">
+                                            <span className="material-symbols-outlined text-[14px]">
+                                                rounded_corner
+                                            </span>
+                                            Corner Turning Radius (Fillet R):
+                                        </span>
+                                        <span className="font-mono font-bold text-emerald-700">
+                                            {effectiveCornerRadius.toFixed(2)}{' '}
+                                            meter
+                                        </span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0.0"
+                                        max="2.5"
+                                        step="0.1"
+                                        value={effectiveCornerRadius}
+                                        onChange={(e) =>
+                                            handleGlobalCornerRadiusChange(
+                                                parseFloat(e.target.value),
+                                            )
+                                        }
+                                        className="mt-1 h-1.5 w-full cursor-pointer accent-emerald-600"
+                                    />
+                                    <div className="mt-1 flex items-center justify-between gap-1">
+                                        {[
+                                            { label: '0.0m Sharp', val: 0.0 },
+                                            { label: '0.5m Tight', val: 0.5 },
+                                            { label: '0.8m Std AGV', val: 0.8 },
+                                            {
+                                                label: '1.2m Wide',
+                                                val: 1.2,
+                                            },
+                                            {
+                                                label: '1.8m Highway',
+                                                val: 1.8,
+                                            },
+                                        ].map((preset) => (
+                                            <button
+                                                key={preset.label}
+                                                type="button"
+                                                onClick={() =>
+                                                    handleGlobalCornerRadiusChange(
+                                                        preset.val,
+                                                    )
+                                                }
+                                                className={`cursor-pointer rounded px-1.5 py-0.5 font-mono text-[9px] transition-all ${
+                                                    Math.abs(
+                                                        effectiveCornerRadius -
+                                                            preset.val,
+                                                    ) < 0.05
+                                                        ? 'bg-emerald-600 font-bold text-white'
+                                                        : 'bg-surface-container text-on-surface-variant hover:bg-slate-200'
+                                                }`}
+                                            >
+                                                {preset.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
                                 <div>
                                     <div className="flex items-center justify-between font-label-sm text-label-sm">
                                         <span className="text-tertiary">
@@ -682,11 +984,37 @@ export default function PathPlanningPage({
                                         onClick={handleUndoLastPoint}
                                         className="cursor-pointer rounded-lg bg-surface-container px-space-md py-2 font-label-sm text-label-sm text-on-surface uppercase transition-all hover:bg-surface-container-high"
                                     >
-                                        Undo WP
+                                        Undo Node
                                     </button>
                                 )}
                             </div>
                         </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white/80 p-8 text-center shadow-xs">
+                            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-container-low text-primary">
+                                <span className="material-symbols-outlined text-[26px]">
+                                    touch_app
+                                </span>
+                            </div>
+                            <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">
+                                No Guidance Path Selected
+                            </h3>
+                            <p className="mt-1 max-w-xs font-body-sm text-body-sm text-tertiary">
+                                Click any trajectory line on the blueprint map or select from the transit lane manifest below to inspect and edit, or click{' '}
+                                <strong className="text-on-surface">+ NEW PATH</strong> to draw.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={startNewPathMode}
+                                className="mt-4 flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-4 py-2 font-label-sm text-xs font-semibold text-on-primary uppercase shadow-xs transition-all hover:bg-on-primary-fixed-variant"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">
+                                    add_road
+                                </span>
+                                <span>+ NEW PATH</span>
+                            </button>
+                        </div>
+                    )}
 
                         {/* Card 5: List of Saved Path Plans Header */}
                         <div className="rounded-xl border border-slate-200/80 bg-white p-space-md shadow-xs">

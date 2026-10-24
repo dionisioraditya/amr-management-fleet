@@ -42,6 +42,7 @@ export interface Waypoint {
 export interface PathCoordinate {
     x: number;
     y: number;
+    r?: number;
 }
 
 export interface Pathplan {

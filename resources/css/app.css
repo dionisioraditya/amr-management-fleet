@@ -164,6 +164,23 @@
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
+
+    /* Cybernetic Bouncy Spring Transition Curves */
+    --ease-spring: cubic-bezier(0.34, 1.28, 0.64, 1);
+    --ease-spring-bounce: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    --ease-spring-snappy: cubic-bezier(0.2, 1.2, 0.3, 1);
+}
+
+@utility ease-spring {
+    transition-timing-function: cubic-bezier(0.34, 1.28, 0.64, 1);
+}
+
+@utility ease-spring-bounce {
+    transition-timing-function: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@utility ease-spring-snappy {
+    transition-timing-function: cubic-bezier(0.2, 1.2, 0.3, 1);
 }
 
 :root {

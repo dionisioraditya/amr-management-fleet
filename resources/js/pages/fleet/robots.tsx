@@ -410,7 +410,7 @@ export default function RobotsPage({
                                             <div className="flex items-center gap-2.5">
                                                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
                                                     <span className="material-symbols-outlined text-[18px]">
-                                                        precision_manufacturing
+                                                        smart_toy
                                                     </span>
                                                 </div>
                                                 <div>

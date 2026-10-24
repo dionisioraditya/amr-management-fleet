@@ -20,6 +20,7 @@ class StorePathplanRequest extends FormRequest
             'coordinates' => ['required', 'array', 'min:2'],
             'coordinates.*.x' => ['required', 'numeric'],
             'coordinates.*.y' => ['required', 'numeric'],
+            'coordinates.*.r' => ['nullable', 'numeric', 'min:0', 'max:5.0'],
             'description' => ['nullable', 'string', 'max:500'],
         ];
     }

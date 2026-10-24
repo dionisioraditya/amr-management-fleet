@@ -19,7 +19,8 @@ interface NavRailItem {
     id: string;
     title: string;
     href: string;
-    icon: string;
+    icon?: string;
+    imageSrc?: string;
     cockpitSection?: CockpitSection;
 }
 
@@ -44,7 +45,7 @@ const primaryNavItems: NavRailItem[] = [
         id: 'robots',
         title: 'Robots',
         href: '/robots',
-        icon: 'precision_manufacturing',
+        imageSrc: '/images/agv-robot.png',
         cockpitSection: 'robots',
     },
     {
@@ -57,7 +58,7 @@ const primaryNavItems: NavRailItem[] = [
         id: 'map-studio',
         title: 'Map Studio',
         href: '/map-studio',
-        icon: 'polyline',
+        icon: 'map',
     },
     {
         id: 'event-logs',
@@ -172,18 +173,38 @@ export function TelemetryNavRail() {
                                                 active ? 'page' : undefined
                                             }
                                             data-path={item.id}
-                                            className={`group relative flex h-11 w-11 items-center justify-center rounded-lg transition-all ${
+                                            className={`group relative flex h-11 w-11 items-center justify-center rounded-lg transition-all duration-300 ease-spring active:scale-85 hover:scale-105 ${
                                                 active
-                                                    ? 'bg-surface-container font-bold text-primary shadow-sm'
+                                                    ? 'bg-surface-container font-bold text-primary shadow-sm scale-100'
                                                     : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
                                             }`}
                                         >
                                             {active && (
-                                                <span className="absolute top-1.5 bottom-1.5 -left-1.5 w-[3px] rounded-r-full bg-primary-container" />
+                                                <span className="absolute top-1.5 bottom-1.5 -left-1.5 w-[3px] rounded-r-full bg-primary-container transition-all duration-300 ease-spring" />
                                             )}
-                                            <span className="material-symbols-outlined text-[22px]">
-                                                {item.icon}
-                                            </span>
+                                            {item.imageSrc ? (
+                                                <div
+                                                    className={`h-5 w-5 transition-all duration-300 ease-spring group-active:scale-90 group-hover:scale-110 ${
+                                                        active
+                                                            ? 'bg-primary'
+                                                            : 'bg-on-surface-variant group-hover:bg-on-surface'
+                                                    }`}
+                                                    style={{
+                                                        maskImage: `url(${item.imageSrc})`,
+                                                        WebkitMaskImage: `url(${item.imageSrc})`,
+                                                        maskSize: 'contain',
+                                                        WebkitMaskSize: 'contain',
+                                                        maskRepeat: 'no-repeat',
+                                                        WebkitMaskRepeat: 'no-repeat',
+                                                        maskPosition: 'center',
+                                                        WebkitMaskPosition: 'center',
+                                                    }}
+                                                />
+                                            ) : (
+                                                <span className="material-symbols-outlined text-[22px] transition-transform duration-300 ease-spring group-active:scale-90 group-hover:scale-110">
+                                                    {item.icon}
+                                                </span>
+                                            )}
                                         </Link>
                                     </TooltipTrigger>
                                     <TooltipContent

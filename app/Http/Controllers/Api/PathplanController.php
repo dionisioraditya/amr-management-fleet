@@ -50,6 +50,7 @@ class PathplanController extends Controller
             'coordinates' => ['sometimes', 'array', 'min:2'],
             'coordinates.*.x' => ['required_with:coordinates', 'numeric'],
             'coordinates.*.y' => ['required_with:coordinates', 'numeric'],
+            'coordinates.*.r' => ['nullable', 'numeric', 'min:0', 'max:5.0'],
             'description' => ['nullable', 'string', 'max:500'],
         ]);
 

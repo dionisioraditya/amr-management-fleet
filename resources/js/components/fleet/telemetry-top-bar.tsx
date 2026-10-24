@@ -221,7 +221,7 @@ export function TelemetryTopBar() {
                                         <div className="flex items-center gap-2.5">
                                             <span className="material-symbols-outlined text-[18px] text-primary">
                                                 {item.type === 'vehicle'
-                                                    ? 'precision_manufacturing'
+                                                    ? 'smart_toy'
                                                     : item.type === 'station'
                                                       ? 'ev_station'
                                                       : 'alt_route'}

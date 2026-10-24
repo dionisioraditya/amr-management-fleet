@@ -975,10 +975,10 @@ export default function Dashboard({
                     2. SECTION A: LIVE MAP FLOATING HUD OVERLAY
                    ========================================================= */}
                 <div
-                    className={`pointer-events-none absolute inset-0 z-20 flex h-full w-full flex-col justify-between transition-all duration-200 ease-out ${
+                    className={`pointer-events-none absolute inset-0 z-20 flex h-full w-full flex-col justify-between transition-all duration-500 ease-spring ${
                         activeSection === 'live-map'
-                            ? 'translate-x-0 opacity-100'
-                            : 'translate-x-4 opacity-0'
+                            ? 'translate-y-0 opacity-100 scale-100'
+                            : '-translate-y-4 opacity-0 scale-[0.98]'
                     }`}
                 >
                     {/* Top Floating Command Bar & Controls */}
@@ -1528,30 +1528,34 @@ export default function Dashboard({
                     </div>
                 )}
 
-                {activeSection === 'stations' && (
-                    <div className="pointer-events-auto absolute bottom-4 left-[580px] z-20 hidden items-center gap-2 rounded-full border border-outline-variant/40 bg-surface-container-lowest/90 px-3 py-1.5 font-label-sm text-label-sm text-tertiary shadow-sm backdrop-blur-md xl:flex">
-                        <span className="material-symbols-outlined text-[14px] text-primary">
-                            explore
-                        </span>
-                        <span>ROS World Frame [map]</span>
-                        <span className="text-outline-variant">•</span>
-                        <span>
-                            Origin: [{activeMap?.origin_x ?? -10},{' '}
-                            {activeMap?.origin_y ?? -10}]
-                        </span>
-                        <span className="text-outline-variant">•</span>
-                        <span className="font-mono font-medium text-primary">
-                            Nav2 Costmap Active
-                        </span>
-                    </div>
-                )}
+                <div
+                    className={`pointer-events-auto absolute bottom-4 left-[580px] z-20 hidden items-center gap-2 rounded-full border border-outline-variant/40 bg-surface-container-lowest/90 px-3 py-1.5 font-label-sm text-label-sm text-tertiary shadow-sm backdrop-blur-md transition-all duration-500 ease-spring xl:flex ${
+                        activeSection === 'stations'
+                            ? 'translate-y-0 opacity-100 scale-100'
+                            : 'pointer-events-none translate-y-4 opacity-0 scale-95'
+                    }`}
+                >
+                    <span className="material-symbols-outlined text-[14px] text-primary">
+                        explore
+                    </span>
+                    <span>ROS World Frame [map]</span>
+                    <span className="text-outline-variant">•</span>
+                    <span>
+                        Origin: [{activeMap?.origin_x ?? -10},{' '}
+                        {activeMap?.origin_y ?? -10}]
+                    </span>
+                    <span className="text-outline-variant">•</span>
+                    <span className="font-mono font-medium text-primary">
+                        Nav2 Costmap Active
+                    </span>
+                </div>
 
                 <aside
                     aria-hidden={activeSection !== 'stations'}
-                    className={`absolute top-0 bottom-0 left-0 z-20 flex h-full w-full max-w-[560px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm transition-all duration-200 ease-out ${
+                    className={`absolute top-0 bottom-0 left-0 z-20 flex h-full w-full max-w-[560px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm transition-all duration-500 ease-spring ${
                         activeSection === 'stations'
-                            ? 'pointer-events-auto translate-x-0 opacity-100'
-                            : 'pointer-events-none -translate-x-6 opacity-0'
+                            ? 'pointer-events-auto translate-x-0 opacity-100 scale-100'
+                            : 'pointer-events-none -translate-x-12 opacity-0 scale-[0.98]'
                     }`}
                 >
                     <div className="flex flex-col gap-space-md p-margin-lg">
@@ -2013,10 +2017,10 @@ export default function Dashboard({
                    ========================================================= */}
                 <aside
                     aria-hidden={activeSection !== 'robots'}
-                    className={`absolute top-0 bottom-0 left-0 z-20 flex h-full w-full max-w-[460px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm transition-all duration-200 ease-out ${
+                    className={`absolute top-0 bottom-0 left-0 z-20 flex h-full w-full max-w-[460px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm transition-all duration-500 ease-spring ${
                         activeSection === 'robots'
-                            ? 'pointer-events-auto translate-x-0 opacity-100'
-                            : 'pointer-events-none -translate-x-6 opacity-0'
+                            ? 'pointer-events-auto translate-x-0 opacity-100 scale-100'
+                            : 'pointer-events-none -translate-x-12 opacity-0 scale-[0.98]'
                     }`}
                 >
                     <div className="flex flex-col gap-space-md p-margin-lg">
@@ -2171,7 +2175,7 @@ export default function Dashboard({
                                             <div className="flex items-center gap-2.5">
                                                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
                                                     <span className="material-symbols-outlined text-[18px]">
-                                                        precision_manufacturing
+                                                        smart_toy
                                                     </span>
                                                 </div>
                                                 <div>
@@ -2267,10 +2271,10 @@ export default function Dashboard({
                 {activeVehicle && (
                     <div
                         aria-hidden={activeSection !== 'robots'}
-                        className={`absolute top-24 right-4 z-20 flex w-88 flex-col gap-3 rounded-xl border border-slate-200/90 bg-white/95 p-4 shadow-lg backdrop-blur-md transition-all duration-200 ease-out ${
+                        className={`absolute top-24 right-4 z-20 flex w-88 flex-col gap-3 rounded-xl border border-slate-200/90 bg-white/95 p-4 shadow-lg backdrop-blur-md transition-all duration-500 ease-spring ${
                             activeSection === 'robots'
-                                ? 'pointer-events-auto translate-x-0 opacity-100'
-                                : 'pointer-events-none translate-x-6 opacity-0'
+                                ? 'pointer-events-auto translate-x-0 opacity-100 scale-100'
+                                : 'pointer-events-none translate-x-12 opacity-0 scale-[0.96]'
                         }`}
                     >
                         <div className="flex items-start justify-between border-b border-slate-100 pb-3">
