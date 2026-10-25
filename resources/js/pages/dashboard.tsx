@@ -999,10 +999,34 @@ export default function Dashboard({
                                     <span className="font-label-sm text-[10px] leading-none text-tertiary uppercase">
                                         Facility / Hub
                                     </span>
-                                    <span className="mt-0.5 font-headline-sm text-label-lg leading-tight font-semibold text-on-surface">
-                                        {activeMap?.name ??
-                                            'Production Plant Alpha — Zone 1'}
-                                    </span>
+                                    {maps.length > 1 ? (
+                                        <select
+                                            value={activeMap?.id}
+                                            onChange={async (e) => {
+                                                const targetId = Number(e.target.value);
+                                                if (targetId && targetId !== activeMap?.id) {
+                                                    await fetch(`/api/maps/${targetId}/activate`, {
+                                                        method: 'POST',
+                                                        headers: { Accept: 'application/json' },
+                                                    });
+                                                    toast.success('Active map switched.');
+                                                    router.reload();
+                                                }
+                                            }}
+                                            className="mt-0.5 cursor-pointer border-0 bg-transparent p-0 pr-4 font-headline-sm text-xs font-semibold text-on-surface focus:outline-none focus:ring-0"
+                                        >
+                                            {maps.map((m) => (
+                                                <option key={m.id} value={m.id}>
+                                                    {m.name} {m.is_active ? '★ (Active)' : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <span className="mt-0.5 font-headline-sm text-label-lg leading-tight font-semibold text-on-surface">
+                                            {activeMap?.name ??
+                                                'Production Plant Alpha — Zone 1'}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 

@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\KeepoutZone;
 use App\Models\Map;
 use App\Models\Mission;
 use App\Models\MissionItem;
@@ -91,6 +92,42 @@ class AmrFleetSeeder extends Seeder
                 'description' => 'Dedicated feeder spur lane for material pickup in Assembly Zone A.',
             ]
         );
+
+        // 3b. Keep-Out & Speed-Limit Zones
+        if (\Illuminate\Support\Facades\Schema::hasTable('keepout_zones')) {
+            KeepoutZone::updateOrCreate(
+                ['map_id' => $map->id, 'name' => 'FORKLIFT-BAY-A'],
+                [
+                    'type' => 'keep_out',
+                    'coordinates' => [
+                        ['x' => 16.5, 'y' => 0.5],
+                        ['x' => 20.5, 'y' => 0.5],
+                        ['x' => 20.5, 'y' => 2.2],
+                        ['x' => 16.5, 'y' => 2.2],
+                    ],
+                    'is_active' => true,
+                    'color' => '#dc2626',
+                    'description' => 'Restricted heavy forklift loading and battery exchange bay (Lethal Cost 254).',
+                ]
+            );
+
+            KeepoutZone::updateOrCreate(
+                ['map_id' => $map->id, 'name' => 'PEDESTRIAN-CROSSING-01'],
+                [
+                    'type' => 'speed_limit',
+                    'coordinates' => [
+                        ['x' => 8.5, 'y' => 2.0],
+                        ['x' => 10.5, 'y' => 2.0],
+                        ['x' => 10.5, 'y' => 4.5],
+                        ['x' => 8.5, 'y' => 4.5],
+                    ],
+                    'speed_limit' => 0.40,
+                    'is_active' => true,
+                    'color' => '#f59e0b',
+                    'description' => 'Operator walkway crossing — speed capped at 0.40 m/s.',
+                ]
+            );
+        }
 
         // 4. Vehicles
         $vehicle1 = Vehicle::updateOrCreate(

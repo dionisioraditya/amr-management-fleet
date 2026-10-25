@@ -44,11 +44,16 @@ class FleetDashboardController extends Controller
      */
     protected function renderSpatialCockpit(string $initialSection): Response
     {
+        $relations = ['waypoints', 'pathplans'];
+        if (Schema::hasTable('keepout_zones')) {
+            $relations[] = 'keepoutZones';
+        }
+
         $maps = Schema::hasTable('maps')
-            ? Map::with(['waypoints', 'pathplans'])->latest()->get()
+            ? Map::with($relations)->orderByDesc('is_active')->latest()->get()
             : collect();
 
-        $activeMap = $maps->first();
+        $activeMap = $maps->firstWhere('is_active', true) ?? $maps->first();
 
         $waypoints = $activeMap
             ? $activeMap->waypoints
@@ -77,8 +82,13 @@ class FleetDashboardController extends Controller
      */
     public function pathPlanning(): Response
     {
-        $maps = Schema::hasTable('maps') ? Map::with(['waypoints', 'pathplans'])->latest()->get() : collect();
-        $activeMap = $maps->first();
+        $relations = ['waypoints', 'pathplans'];
+        if (Schema::hasTable('keepout_zones')) {
+            $relations[] = 'keepoutZones';
+        }
+
+        $maps = Schema::hasTable('maps') ? Map::with($relations)->orderByDesc('is_active')->latest()->get() : collect();
+        $activeMap = $maps->firstWhere('is_active', true) ?? $maps->first();
         $pathplans = $activeMap ? $activeMap->pathplans : (Schema::hasTable('pathplans') ? Pathplan::latest()->get() : collect());
 
         return Inertia::render('fleet/path-planning', [
@@ -93,13 +103,19 @@ class FleetDashboardController extends Controller
      */
     public function mapStudio(): Response
     {
+        $relations = ['waypoints', 'pathplans'];
+        if (Schema::hasTable('keepout_zones')) {
+            $relations[] = 'keepoutZones';
+        }
+
         $maps = Schema::hasTable('maps')
-            ? Map::withCount(['waypoints', 'pathplans'])->with(['waypoints', 'pathplans'])->latest()->get()
+            ? Map::withCount($relations)->with($relations)->orderByDesc('is_active')->latest()->get()
             : collect();
+        $activeMap = $maps->firstWhere('is_active', true) ?? $maps->first();
 
         return Inertia::render('fleet/map-studio', [
             'maps' => $maps,
-            'activeMap' => $maps->first(),
+            'activeMap' => $activeMap,
         ]);
     }
 

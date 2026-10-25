@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\KeepoutZoneController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\MapController;
 use App\Http\Controllers\Api\MissionController;
@@ -22,6 +23,7 @@ Route::post('vehicles/{vehicle}/telemetry', [VehicleController::class, 'telemetr
 // 2. Maps
 Route::post('maps/upload-package', [MapController::class, 'uploadPackage'])->name('maps.upload-package');
 Route::get('maps/{map}/export-package', [MapController::class, 'exportPackage'])->name('maps.export-package');
+Route::post('maps/{map}/activate', [MapController::class, 'activate'])->name('maps.activate');
 Route::apiResource('maps', MapController::class);
 
 // 3. Waypoints (nested under map for creation/list, direct for edit/delete)
@@ -35,6 +37,13 @@ Route::get('maps/{map}/pathplans', [PathplanController::class, 'index'])->name('
 Route::post('maps/{map}/pathplans', [PathplanController::class, 'store'])->name('maps.pathplans.store');
 Route::put('pathplans/{pathplan}', [PathplanController::class, 'update'])->name('pathplans.update');
 Route::delete('pathplans/{pathplan}', [PathplanController::class, 'destroy'])->name('pathplans.destroy');
+
+// 4b. Keep-Out & Speed-Limit Zones (Nav2 Costmap Filter Polygons)
+Route::get('maps/{map}/keepout-zones', [KeepoutZoneController::class, 'index'])->name('maps.keepout-zones.index');
+Route::post('maps/{map}/keepout-zones', [KeepoutZoneController::class, 'store'])->name('maps.keepout-zones.store');
+Route::post('maps/{map}/keepout-zones/rasterize', [KeepoutZoneController::class, 'rasterize'])->name('maps.keepout-zones.rasterize');
+Route::put('keepout-zones/{keepoutZone}', [KeepoutZoneController::class, 'update'])->name('keepout-zones.update');
+Route::delete('keepout-zones/{keepoutZone}', [KeepoutZoneController::class, 'destroy'])->name('keepout-zones.destroy');
 
 // 5. Missions & Dispatching
 Route::apiResource('missions', MissionController::class);

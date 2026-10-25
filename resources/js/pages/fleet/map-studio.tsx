@@ -1,7 +1,11 @@
 import { Head, router } from '@inertiajs/react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { InteractiveBlueprintCanvas } from '@/components/fleet/interactive-blueprint-canvas';
+import {
+    calculatePolygonArea,
+    InteractiveBlueprintCanvas,
+} from '@/components/fleet/interactive-blueprint-canvas';
+import type { AngleConstraintMode } from '@/components/fleet/interactive-blueprint-canvas';
 import {
     Dialog,
     DialogContent,
@@ -10,7 +14,13 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import type { FacilityMap, Vehicle } from '@/types';
+import type {
+    FacilityMap,
+    KeepoutZone,
+    KeepoutZoneType,
+    PathCoordinate,
+    Vehicle,
+} from '@/types';
 
 interface MapStudioProps {
     maps: FacilityMap[];
@@ -51,7 +61,8 @@ export default function MapStudioPage({
         'select' | 'wall' | 'zone' | 'station' | 'keepout' | 'barrier'
     >('select');
     const [snapStep, setSnapStep] = useState<number>(0.5);
-    const [orthoLock, setOrthoLock] = useState(true);
+    const [angleConstraintMode, setAngleConstraintMode] =
+        useState<AngleConstraintMode>('ortho-45');
     const [showKeepOut, setShowKeepOut] = useState(true);
     const [showOriginDatum, setShowOriginDatum] = useState(true);
 
@@ -72,6 +83,193 @@ export default function MapStudioPage({
     const [pushingNav2, setPushingNav2] = useState(false);
 
     const currentMap = selectedMap ?? maps[0] ?? null;
+
+    // Keep-Out & Speed-Limit Polygon Zone State
+    const [zones, setZones] = useState<KeepoutZone[]>(
+        currentMap?.keepout_zones ?? [],
+    );
+    const [selectedZone, setSelectedZone] = useState<KeepoutZone | null>(null);
+    const [draftZoneCoords, setDraftZoneCoords] = useState<PathCoordinate[]>([]);
+    const [zoneName, setZoneName] = useState('');
+    const [zoneType, setZoneType] = useState<KeepoutZoneType>('keep_out');
+    const [zoneSpeedLimit, setZoneSpeedLimit] = useState('0.40');
+    const [zoneDescription, setZoneDescription] = useState('');
+    const [isSavingZone, setIsSavingZone] = useState(false);
+
+    useEffect(() => {
+        setZones(currentMap?.keepout_zones ?? []);
+        setSelectedZone(null);
+        setDraftZoneCoords([]);
+    }, [currentMap?.id, currentMap?.keepout_zones]);
+
+    const handleStartDrawZone = () => {
+        const nextIndex = zones.length + 1;
+        setSelectedZone(null);
+        setDraftZoneCoords([]);
+        setZoneName(`RESTRICTED-ZONE-0${nextIndex}`);
+        setZoneType('keep_out');
+        setZoneSpeedLimit('0.40');
+        setZoneDescription('');
+        setShowKeepOut(true);
+        setActiveTool('keepout');
+        toast.info(
+            'Polygon Pen Active: Click 3+ corners on the map, then click V1 or "Close & Save Zone".',
+        );
+    };
+
+    const handleSelectZone = (zone: KeepoutZone) => {
+        setActiveTool('select');
+        setSelectedZone(zone);
+        setDraftZoneCoords(zone.coordinates ?? []);
+        setZoneName(zone.name);
+        setZoneType(zone.zone_type);
+        setZoneSpeedLimit(String(zone.speed_limit ?? 0.4));
+        setZoneDescription(zone.description ?? '');
+    };
+
+    const handleClearZoneSelection = () => {
+        setSelectedZone(null);
+        if (activeTool !== 'keepout') {
+            setDraftZoneCoords([]);
+        }
+    };
+
+    const handleAddZonePoint = (coord: PathCoordinate) => {
+        setDraftZoneCoords((prev) => [...prev, coord]);
+    };
+
+    const handleUpdateZonePoint = (index: number, coord: PathCoordinate) => {
+        setDraftZoneCoords((prev) =>
+            prev.map((pt, i) => (i === index ? coord : pt)),
+        );
+    };
+
+    const handleSaveZone = async () => {
+        if (!currentMap) return;
+        if (draftZoneCoords.length < 3) {
+            toast.error(
+                'A polygon zone requires at least 3 corner vertices.',
+            );
+            return;
+        }
+
+        const finalName =
+            zoneName.trim() || `RESTRICTED-ZONE-0${zones.length + 1}`;
+        setIsSavingZone(true);
+
+        const payload = {
+            name: finalName,
+            zone_type: zoneType,
+            speed_limit:
+                zoneType === 'speed_limit'
+                    ? parseFloat(zoneSpeedLimit) || 0.4
+                    : null,
+            color: zoneType === 'keep_out' ? '#dc2626' : '#d97706',
+            is_active: selectedZone ? selectedZone.is_active : true,
+            coordinates: draftZoneCoords,
+            description: zoneDescription.trim() || null,
+        };
+
+        try {
+            const url = selectedZone
+                ? `/api/keepout-zones/${selectedZone.id}`
+                : `/api/maps/${currentMap.id}/keepout-zones`;
+            const method = selectedZone ? 'PUT' : 'POST';
+
+            const response = await fetch(url, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const json = await response.json();
+            if (response.ok && json.data) {
+                const savedZone: KeepoutZone = json.data;
+                setZones((prev) =>
+                    selectedZone
+                        ? prev.map((z) =>
+                              z.id === savedZone.id ? savedZone : z,
+                          )
+                        : [...prev, savedZone],
+                );
+                if (json.meta?.keepout_url && currentMap) {
+                    setSelectedMap({
+                        ...currentMap,
+                        keepout_url: json.meta.keepout_url,
+                    });
+                }
+                setSelectedZone(savedZone);
+                setDraftZoneCoords(savedZone.coordinates ?? []);
+                setActiveTool('select');
+                toast.success(
+                    `Zone '${savedZone.name}' (${savedZone.area_m2 ?? calculatePolygonArea(draftZoneCoords)} m²) saved & rasterized to Nav2 mask.`,
+                );
+            } else {
+                toast.error(json.message || 'Failed to save keep-out zone.');
+            }
+        } catch {
+            toast.error('Network error while saving keep-out zone.');
+        } finally {
+            setIsSavingZone(false);
+        }
+    };
+
+    const handleToggleZoneActive = async (
+        zone: KeepoutZone,
+        e: React.MouseEvent,
+    ) => {
+        e.stopPropagation();
+        try {
+            const response = await fetch(`/api/keepout-zones/${zone.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                },
+                body: JSON.stringify({ is_active: !zone.is_active }),
+            });
+            const json = await response.json();
+            if (response.ok && json.data) {
+                const updated: KeepoutZone = json.data;
+                setZones((prev) =>
+                    prev.map((z) => (z.id === updated.id ? updated : z)),
+                );
+                if (selectedZone?.id === updated.id) {
+                    setSelectedZone(updated);
+                }
+                toast.success(
+                    `Zone '${updated.name}' ${updated.is_active ? 'enabled' : 'muted'} on Nav2 costmap.`,
+                );
+            }
+        } catch {
+            toast.error('Failed to toggle zone status.');
+        }
+    };
+
+    const handleDeleteZone = async (zone: KeepoutZone, e?: React.MouseEvent) => {
+        e?.stopPropagation();
+        try {
+            const response = await fetch(`/api/keepout-zones/${zone.id}`, {
+                method: 'DELETE',
+                headers: { Accept: 'application/json' },
+            });
+            if (response.ok) {
+                setZones((prev) => prev.filter((z) => z.id !== zone.id));
+                if (selectedZone?.id === zone.id) {
+                    setSelectedZone(null);
+                    setDraftZoneCoords([]);
+                }
+                toast.success(
+                    `Zone '${zone.name}' removed from Nav2 costmap mask.`,
+                );
+            }
+        } catch {
+            toast.error('Failed to delete keep-out zone.');
+        }
+    };
 
     const triggerFileManagerZipSelect = () => {
         setEditingMap(null);
@@ -264,6 +462,22 @@ export default function MapStudioPage({
         }
         setPushingNav2(true);
         try {
+            // Re-rasterize keepout_zones.png & keepout_mask.yaml before pushing to Nav2
+            await fetch(`/api/maps/${currentMap.id}/keepout-zones/rasterize`, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                },
+            });
+
+            // Activate map as primary Nav2 & fleet active map in DB
+            await fetch(`/api/maps/${currentMap.id}/activate`, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                },
+            });
+
             const response = await fetch('/api/logs/system', {
                 method: 'POST',
                 headers: {
@@ -271,7 +485,7 @@ export default function MapStudioPage({
                     Accept: 'application/json',
                 },
                 body: JSON.stringify({
-                    action: `Pushed Calibrated Map '${currentMap.name}' to Active ROS 2 Nav2 Server`,
+                    action: `Pushed Calibrated Map '${currentMap.name}' & ${zones.filter((z) => z.is_active).length} Keep-Out Masks to Active ROS 2 Nav2 Server`,
                     level: 'info',
                     context: {
                         map_id: currentMap.id,
@@ -285,6 +499,8 @@ export default function MapStudioPage({
                             currentMap.width_px,
                             currentMap.height_px,
                         ],
+                        active_keepout_zones: zones.filter((z) => z.is_active)
+                            .length,
                         occupancy_view_mode: occupancyViewMode,
                     },
                 }),
@@ -292,7 +508,7 @@ export default function MapStudioPage({
 
             if (response.ok) {
                 toast.success(
-                    `Map '${currentMap.name}' deployed to Nav2 Server (10.32.254.195).`,
+                    `Map '${currentMap.name}' & Keep-Out Costmap Mask deployed to Nav2 Server (10.32.254.195).`,
                 );
                 router.reload();
             }
@@ -300,6 +516,29 @@ export default function MapStudioPage({
             toast.error('Failed to deploy map to Nav2 server.');
         } finally {
             setPushingNav2(false);
+        }
+    };
+
+    const handleActivateMap = async (map: FacilityMap, e?: React.MouseEvent) => {
+        if (e) {
+            e.stopPropagation();
+        }
+        try {
+            const res = await fetch(`/api/maps/${map.id}/activate`, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                },
+            });
+            if (res.ok) {
+                toast.success(`Map '${map.name}' is now active across the fleet.`);
+                setSelectedMap(map);
+                router.reload();
+            } else {
+                toast.error('Failed to set map as active.');
+            }
+        } catch {
+            toast.error('Network error while activating map.');
         }
     };
 
@@ -311,6 +550,8 @@ export default function MapStudioPage({
         currentMap?.height_px && currentMap?.resolution
             ? (currentMap.height_px * currentMap.resolution).toFixed(1)
             : '15.0';
+
+    const currentDraftArea = calculatePolygonArea(draftZoneCoords);
 
     return (
         <>
@@ -331,6 +572,16 @@ export default function MapStudioPage({
                         map={currentMap}
                         waypoints={currentMap?.waypoints ?? []}
                         pathplans={currentMap?.pathplans ?? []}
+                        keepoutZones={zones}
+                        selectedKeepoutZoneId={selectedZone?.id ?? null}
+                        onSelectKeepoutZone={handleSelectZone}
+                        onClearSelection={handleClearZoneSelection}
+                        mode={activeTool === 'keepout' ? 'draw-zone' : 'view'}
+                        draftZoneCoordinates={draftZoneCoords}
+                        onAddZonePoint={handleAddZonePoint}
+                        onUpdateZonePoint={handleUpdateZonePoint}
+                        onCompleteZone={handleSaveZone}
+                        angleConstraintMode={angleConstraintMode}
                         vehicles={showSimulation ? simulatedVehicles : []}
                         snapStep={snapStep}
                         showSlamNoise={false}
@@ -376,8 +627,32 @@ export default function MapStudioPage({
                         </button>
                     </div>
 
-                    {/* Layer Toggles: Origin Datum [0,0], Keep-Out, & Simulation */}
+                    {/* Layer Toggles & Polygon Pen Tool */}
                     <div className="flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() =>
+                                activeTool === 'keepout'
+                                    ? setActiveTool('select')
+                                    : handleStartDrawZone()
+                            }
+                            className={`flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 font-label-sm text-xs transition-all ${
+                                activeTool === 'keepout'
+                                    ? 'bg-red-600 font-bold text-white shadow-xs ring-2 ring-red-300'
+                                    : 'bg-red-50 font-bold text-red-700 ring-1 ring-red-200 hover:bg-red-100'
+                            }`}
+                            title="Draw Restricted Keep-Out / Speed-Limit Polygon Zone"
+                        >
+                            <span className="material-symbols-outlined text-[15px]">
+                                pentagon
+                            </span>
+                            <span>
+                                {activeTool === 'keepout'
+                                    ? 'Drawing Zone...'
+                                    : '+ Polygon Zone'}
+                            </span>
+                        </button>
+
                         <button
                             type="button"
                             onClick={() => setShowOriginDatum((d) => !d)}
@@ -407,7 +682,7 @@ export default function MapStudioPage({
                             <span className="material-symbols-outlined text-[15px]">
                                 do_not_disturb_on
                             </span>
-                            <span>Keep-Out</span>
+                            <span>Keep-Out ({zones.length})</span>
                         </button>
 
                         <button
@@ -461,6 +736,91 @@ export default function MapStudioPage({
                         </button>
                     </div>
                 </div>
+
+                {/* Active Keep-Out Polygon Drawing Floating Banner */}
+                {activeTool === 'keepout' && (
+                    <div className="pointer-events-auto absolute top-[68px] right-4 left-[440px] z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-300 bg-red-950/95 px-4 py-2 text-white shadow-lg backdrop-blur-md">
+                        <div className="flex items-center gap-2.5">
+                            <span className="material-symbols-outlined text-[18px] text-red-400">
+                                pentagon
+                            </span>
+                            <div>
+                                <div className="font-headline-sm text-xs font-bold tracking-wider uppercase">
+                                    Polygon Keep-Out Mask Pen Active
+                                </div>
+                                <div className="font-mono text-[10px] text-red-200">
+                                    Vertices: {draftZoneCoords.length} pts •
+                                    Area: {currentDraftArea} m² • Click V1 to
+                                    close loop
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                            <div className="mr-1 flex items-center gap-0.5 rounded-lg bg-red-900/80 p-0.5 font-mono text-[10px]">
+                                {(
+                                    [
+                                        ['ortho-45', '45°'],
+                                        ['ortho-90', '90°'],
+                                        ['free', 'Free'],
+                                    ] as const
+                                ).map(([modeVal, label]) => (
+                                    <button
+                                        key={modeVal}
+                                        type="button"
+                                        onClick={() =>
+                                            setAngleConstraintMode(modeVal)
+                                        }
+                                        className={`cursor-pointer rounded px-2 py-0.5 font-bold transition ${
+                                            angleConstraintMode === modeVal
+                                                ? 'bg-white text-red-950'
+                                                : 'text-red-200 hover:text-white'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <button
+                                type="button"
+                                disabled={draftZoneCoords.length === 0}
+                                onClick={() =>
+                                    setDraftZoneCoords((prev) =>
+                                        prev.slice(0, -1),
+                                    )
+                                }
+                                className="cursor-pointer rounded-lg bg-red-900 px-2.5 py-1 font-label-sm text-[11px] font-semibold text-red-100 hover:bg-red-800 disabled:opacity-40"
+                            >
+                                Undo Vertex
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDraftZoneCoords([]);
+                                    setActiveTool('select');
+                                }}
+                                className="cursor-pointer rounded-lg bg-red-900/70 px-2.5 py-1 font-label-sm text-[11px] font-semibold text-red-200 hover:bg-red-800"
+                            >
+                                Cancel
+                            </button>
+
+                            <button
+                                type="button"
+                                disabled={
+                                    draftZoneCoords.length < 3 || isSavingZone
+                                }
+                                onClick={handleSaveZone}
+                                className="cursor-pointer rounded-lg bg-emerald-500 px-3 py-1 font-label-sm text-[11px] font-bold text-slate-950 uppercase shadow-xs hover:bg-emerald-400 disabled:opacity-40"
+                            >
+                                {isSavingZone
+                                    ? 'Saving...'
+                                    : 'Close & Save Zone'}
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 {/* Technical Calibration Watermark Indicator on Canvas */}
                 {currentMap && (
@@ -593,6 +953,268 @@ export default function MapStudioPage({
                             </div>
                         )}
 
+                        {/* Card 2B: Keep-Out & Speed-Limit Polygon Zones Inspector */}
+                        {currentMap && (
+                            <div className="rounded-xl border border-slate-200/80 bg-white p-space-md shadow-xs">
+                                <div className="mb-2 flex items-center justify-between">
+                                    <div>
+                                        <span className="font-label-sm text-[10px] font-bold tracking-wider text-red-600 uppercase">
+                                            NAV2 COSTMAP FILTER MASKS
+                                        </span>
+                                        <h2 className="font-headline-sm text-sm font-bold text-on-surface uppercase">
+                                            Keep-Out &amp; Speed Zones
+                                        </h2>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            activeTool === 'keepout'
+                                                ? setActiveTool('select')
+                                                : handleStartDrawZone()
+                                        }
+                                        className={`flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 font-label-sm text-[10px] font-bold uppercase transition ${
+                                            activeTool === 'keepout'
+                                                ? 'bg-red-600 text-white shadow-xs'
+                                                : 'bg-red-50 text-red-700 ring-1 ring-red-200 hover:bg-red-100'
+                                        }`}
+                                    >
+                                        <span className="material-symbols-outlined text-[14px]">
+                                            pentagon
+                                        </span>
+                                        <span>
+                                            {activeTool === 'keepout'
+                                                ? 'Drawing...'
+                                                : '+ Draw Zone'}
+                                        </span>
+                                    </button>
+                                </div>
+
+                                {/* Active Zone Editor Form (When Drawing or Zone Selected) */}
+                                {(activeTool === 'keepout' || selectedZone) && (
+                                    <div className="mb-3 space-y-2.5 rounded-xl border border-red-200 bg-red-50/40 p-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-mono text-[10px] font-bold text-red-700 uppercase">
+                                                {selectedZone
+                                                    ? `Editing #${selectedZone.id} (${currentDraftArea} m²)`
+                                                    : `New Polygon (${draftZoneCoords.length} pts · ${currentDraftArea} m²)`}
+                                            </span>
+                                            {selectedZone && (
+                                                <button
+                                                    type="button"
+                                                    onClick={
+                                                        handleClearZoneSelection
+                                                    }
+                                                    className="cursor-pointer font-mono text-[10px] text-tertiary hover:text-on-surface"
+                                                >
+                                                    Close
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="mb-0.5 block font-mono text-[9px] font-bold text-tertiary uppercase">
+                                                    Zone Identifier
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={zoneName}
+                                                    onChange={(e) =>
+                                                        setZoneName(
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                    placeholder="FORKLIFT-BAY-A"
+                                                    className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 font-mono text-xs font-bold text-on-surface focus:border-red-500 focus:outline-none"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="mb-0.5 block font-mono text-[9px] font-bold text-tertiary uppercase">
+                                                    Costmap Filter Type
+                                                </label>
+                                                <select
+                                                    value={zoneType}
+                                                    onChange={(e) =>
+                                                        setZoneType(
+                                                            e.target
+                                                                .value as KeepoutZoneType,
+                                                        )
+                                                    }
+                                                    className="h-8 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-2 font-mono text-xs font-bold text-on-surface focus:border-red-500 focus:outline-none"
+                                                >
+                                                    <option value="keep_out">
+                                                        🚫 Keep-Out (Lethal)
+                                                    </option>
+                                                    <option value="speed_limit">
+                                                        ⚡ Speed-Limit
+                                                    </option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        {zoneType === 'speed_limit' && (
+                                            <div>
+                                                <label className="mb-0.5 block font-mono text-[9px] font-bold text-tertiary uppercase">
+                                                    Max Speed Limit (m/s)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    step="0.05"
+                                                    min="0.1"
+                                                    max="3.0"
+                                                    value={zoneSpeedLimit}
+                                                    onChange={(e) =>
+                                                        setZoneSpeedLimit(
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                    className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 font-mono text-xs font-bold text-amber-700 focus:border-amber-500 focus:outline-none"
+                                                />
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-center justify-between gap-2 pt-1">
+                                            {selectedZone && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        handleDeleteZone(
+                                                            selectedZone,
+                                                        )
+                                                    }
+                                                    className="cursor-pointer rounded-lg bg-red-100 px-2.5 py-1.5 font-label-sm text-[10px] font-bold text-red-700 uppercase hover:bg-red-200"
+                                                >
+                                                    Delete Zone
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                disabled={
+                                                    draftZoneCoords.length <
+                                                        3 || isSavingZone
+                                                }
+                                                onClick={handleSaveZone}
+                                                className="ml-auto cursor-pointer rounded-lg bg-red-600 px-3 py-1.5 font-label-sm text-[10px] font-bold text-white uppercase shadow-2xs hover:bg-red-700 disabled:opacity-40"
+                                            >
+                                                {isSavingZone
+                                                    ? 'Rasterizing...'
+                                                    : selectedZone
+                                                      ? 'Update & Rasterize'
+                                                      : 'Save Polygon Mask'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Zones Manifest List */}
+                                <div className="space-y-1.5">
+                                    {zones.length === 0 ? (
+                                        <div className="rounded-lg border border-dashed border-slate-200 p-3 text-center font-body-sm text-xs text-tertiary">
+                                            No restricted zones defined. Click{' '}
+                                            <strong>+ Draw Zone</strong> to mask
+                                            forbidden areas for ROS 2 Nav2.
+                                        </div>
+                                    ) : (
+                                        zones.map((zone) => {
+                                            const isSel =
+                                                selectedZone?.id === zone.id;
+                                            const isKeepOut =
+                                                zone.zone_type === 'keep_out';
+                                            return (
+                                                <div
+                                                    key={zone.id}
+                                                    onClick={() =>
+                                                        handleSelectZone(zone)
+                                                    }
+                                                    className={`flex cursor-pointer items-center justify-between rounded-lg border px-2.5 py-2 transition ${
+                                                        isSel
+                                                            ? 'border-red-500 bg-red-50/60 ring-1 ring-red-200'
+                                                            : 'border-slate-200/80 bg-surface-container-low/50 hover:border-red-300'
+                                                    } ${!zone.is_active ? 'opacity-50' : ''}`}
+                                                >
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span
+                                                                className={`h-2 w-2 rounded-full ${
+                                                                    isKeepOut
+                                                                        ? 'bg-red-600'
+                                                                        : 'bg-amber-500'
+                                                                }`}
+                                                            />
+                                                            <span className="truncate font-mono text-xs font-bold text-on-surface">
+                                                                {zone.name}
+                                                            </span>
+                                                            <span
+                                                                className={`rounded px-1.5 py-0.5 font-mono text-[9px] font-bold ${
+                                                                    isKeepOut
+                                                                        ? 'bg-red-100 text-red-800'
+                                                                        : 'bg-amber-100 text-amber-800'
+                                                                }`}
+                                                            >
+                                                                {isKeepOut
+                                                                    ? 'KEEP-OUT'
+                                                                    : `${zone.speed_limit ?? 0.4}m/s`}
+                                                            </span>
+                                                        </div>
+                                                        <div className="mt-0.5 font-mono text-[10px] text-tertiary">
+                                                            {zone.coordinates
+                                                                ?.length ?? 0}{' '}
+                                                            vertices •{' '}
+                                                            {zone.area_m2 ??
+                                                                calculatePolygonArea(
+                                                                    zone.coordinates ??
+                                                                        [],
+                                                                )}{' '}
+                                                            m²
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) =>
+                                                                handleToggleZoneActive(
+                                                                    zone,
+                                                                    e,
+                                                                )
+                                                            }
+                                                            title={
+                                                                zone.is_active
+                                                                    ? 'Mute Zone'
+                                                                    : 'Enable Zone'
+                                                            }
+                                                            className="cursor-pointer rounded p-1 text-on-surface-variant hover:bg-white"
+                                                        >
+                                                            <span className="material-symbols-outlined text-[15px]">
+                                                                {zone.is_active
+                                                                    ? 'visibility'
+                                                                    : 'visibility_off'}
+                                                            </span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) =>
+                                                                handleDeleteZone(
+                                                                    zone,
+                                                                    e,
+                                                                )
+                                                            }
+                                                            title="Delete Zone"
+                                                            className="cursor-pointer rounded p-1 text-on-surface-variant hover:bg-red-100 hover:text-red-700"
+                                                        >
+                                                            <span className="material-symbols-outlined text-[15px]">
+                                                                delete
+                                                            </span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Card 3: Saved Facility Maps List */}
                         <div className="space-y-2.5">
                             {maps.map((map, idx) => {
@@ -610,29 +1232,34 @@ export default function MapStudioPage({
                                         <div className="mb-1 flex items-start justify-between gap-space-xs">
                                             <div className="flex items-center gap-space-xs">
                                                 <span
-                                                    className={`h-2 w-2 rounded-full ${
-                                                        idx === 0
-                                                            ? 'bg-emerald-500 ring-2 ring-emerald-200'
-                                                            : 'bg-primary-container'
+                                                    className={`h-2.5 w-2.5 rounded-full ${
+                                                        map.is_active
+                                                            ? 'bg-emerald-500 ring-4 ring-emerald-100'
+                                                            : 'bg-slate-300'
                                                     }`}
                                                 />
                                                 <h3 className="font-headline-sm text-sm font-bold tracking-tight text-on-surface">
                                                     {map.name}
                                                 </h3>
                                             </div>
-                                            <span
-                                                className={`rounded px-1.5 py-0.5 font-label-sm text-[9px] font-bold ${
-                                                    map.raw_pgm_path
-                                                        ? 'bg-emerald-100 text-emerald-800'
-                                                        : 'bg-surface-container-high text-tertiary'
-                                                }`}
-                                            >
-                                                {map.raw_pgm_path
-                                                    ? 'ROS2 PGM'
-                                                    : idx === 0
-                                                      ? 'DEFAULT'
-                                                      : 'SAVED'}
-                                            </span>
+                                            <div className="flex items-center gap-1">
+                                                {map.is_active && (
+                                                    <span className="rounded bg-emerald-600 px-1.5 py-0.5 font-mono text-[9px] font-bold text-white shadow-2xs">
+                                                        ACTIVE
+                                                    </span>
+                                                )}
+                                                <span
+                                                    className={`rounded px-1.5 py-0.5 font-label-sm text-[9px] font-bold ${
+                                                        map.raw_pgm_path
+                                                            ? 'bg-sky-100 text-sky-800'
+                                                            : 'bg-surface-container-high text-tertiary'
+                                                    }`}
+                                                >
+                                                    {map.raw_pgm_path
+                                                        ? 'ROS2 PGM'
+                                                        : 'SYNTHETIC'}
+                                                </span>
+                                            </div>
                                         </div>
 
                                         <p className="mb-2 truncate font-mono text-[10px] text-tertiary">
@@ -739,9 +1366,34 @@ export default function MapStudioPage({
                                             className="flex items-center justify-between border-t border-slate-100 pt-1.5 font-label-sm text-label-sm"
                                             onClick={(e) => e.stopPropagation()}
                                         >
-                                            <span className="font-mono text-[10px] text-tertiary">
-                                                ID #{map.id}
-                                            </span>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="font-mono text-[10px] text-tertiary">
+                                                    ID #{map.id}
+                                                </span>
+                                                {map.is_active ? (
+                                                    <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-700 ring-1 ring-emerald-200">
+                                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                                                        Active
+                                                    </span>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) =>
+                                                            handleActivateMap(
+                                                                map,
+                                                                e,
+                                                            )
+                                                        }
+                                                        className="inline-flex cursor-pointer items-center gap-1 rounded bg-primary/10 px-2 py-0.5 font-mono text-[9px] font-bold text-primary transition hover:bg-primary hover:text-white"
+                                                        title="Set as Active Map for Fleet & Nav2"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[12px]">
+                                                            check_circle
+                                                        </span>
+                                                        <span>Set Active</span>
+                                                    </button>
+                                                )}
+                                            </div>
                                             <div className="flex items-center gap-1">
                                                 <button
                                                     type="button"

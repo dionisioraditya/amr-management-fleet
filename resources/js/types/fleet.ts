@@ -56,9 +56,28 @@ export interface Pathplan {
     created_at?: string;
 }
 
+export type KeepoutZoneType = 'keep_out' | 'speed_limit' | 'caution';
+
+export interface KeepoutZone {
+    id: number;
+    map_id: number;
+    name: string;
+    type: KeepoutZoneType;
+    zone_type: KeepoutZoneType;
+    coordinates: PathCoordinate[];
+    speed_limit?: number | null;
+    is_active: boolean;
+    color?: string;
+    area_m2?: number;
+    description?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
 export interface FacilityMap {
     id: number;
     name: string;
+    is_active?: boolean;
     image_path: string;
     image_url?: string | null;
     keepout_url?: string | null;
@@ -78,8 +97,10 @@ export interface FacilityMap {
     data_path?: string | null;
     waypoints_count?: number;
     pathplans_count?: number;
+    keepout_zones_count?: number;
     waypoints?: Waypoint[];
     pathplans?: Pathplan[];
+    keepout_zones?: KeepoutZone[];
     created_at?: string;
 }
 

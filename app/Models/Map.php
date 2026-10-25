@@ -12,6 +12,7 @@ class Map extends Model
 
     protected $fillable = [
         'name',
+        'is_active',
         'image_path',
         'width_px',
         'height_px',
@@ -37,6 +38,7 @@ class Map extends Model
     protected function casts(): array
     {
         return [
+            'is_active' => 'boolean',
             'width_px' => 'integer',
             'height_px' => 'integer',
             'resolution' => 'float',
@@ -87,5 +89,10 @@ class Map extends Model
     public function pathplans(): HasMany
     {
         return $this->hasMany(Pathplan::class);
+    }
+
+    public function keepoutZones(): HasMany
+    {
+        return $this->hasMany(KeepoutZone::class);
     }
 }

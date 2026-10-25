@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
     FacilityMap,
+    KeepoutZone,
     PathCoordinate,
     Pathplan,
     Vehicle,
@@ -13,20 +14,27 @@ export interface InteractiveBlueprintCanvasProps {
     map?: FacilityMap | null;
     waypoints?: Waypoint[];
     pathplans?: Pathplan[];
+    keepoutZones?: KeepoutZone[];
     vehicles?: Vehicle[];
     selectedWaypointId?: number | null;
     selectedPathplanId?: number | null;
+    selectedKeepoutZoneId?: number | null;
     selectedVehicleId?: string | null;
     onSelectWaypoint?: (waypoint: Waypoint) => void;
     onSelectPathplan?: (pathplan: Pathplan) => void;
+    onSelectKeepoutZone?: (zone: KeepoutZone) => void;
     onSelectVehicle?: (vehicle: Vehicle) => void;
     onClearSelection?: () => void;
-    mode?: 'view' | 'pick-station' | 'draw-path' | 'pose-estimate';
+    mode?: 'view' | 'pick-station' | 'draw-path' | 'draw-zone' | 'pose-estimate';
     onPickCoordinate?: (coord: PathCoordinate) => void;
     onPoseEstimate?: (pose: { x: number; y: number; theta: number }) => void;
     draftCoordinates?: PathCoordinate[];
     onAddPathPoint?: (coord: PathCoordinate) => void;
     onUpdatePathPoint?: (index: number, coord: PathCoordinate) => void;
+    draftZoneCoordinates?: PathCoordinate[];
+    onAddZonePoint?: (coord: PathCoordinate) => void;
+    onUpdateZonePoint?: (index: number, coord: PathCoordinate) => void;
+    onCompleteZone?: () => void;
     defaultCornerRadius?: number; // in meters, default 0.8
     angleConstraintMode?: AngleConstraintMode;
     snapStep?: number; // e.g. 0.5, 0.25, 1.0, or 0 for off
@@ -613,16 +621,55 @@ export function calculatePathLength(
     return Number(geom.totalLengthM.toFixed(1));
 }
 
+/**
+ * Computes closed polygon area in square meters using the Shoelace formula.
+ */
+export function calculatePolygonArea(coords: PathCoordinate[]): number {
+    if (!coords || coords.length < 3) {
+        return 0;
+    }
+    let area = 0;
+    const n = coords.length;
+    for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        area += coords[i].x * coords[j].y;
+        area -= coords[j].x * coords[i].y;
+    }
+    return Number((Math.abs(area) / 2).toFixed(2));
+}
+
+/**
+ * Computes the geometric centroid of a polygon in metric coordinates.
+ */
+export function calculatePolygonCentroid(
+    coords: PathCoordinate[],
+): { x: number; y: number } {
+    if (!coords || coords.length === 0) {
+        return { x: 0, y: 0 };
+    }
+    const sum = coords.reduce(
+        (acc, pt) => ({ x: acc.x + pt.x, y: acc.y + pt.y }),
+        { x: 0, y: 0 },
+    );
+    return {
+        x: Number((sum.x / coords.length).toFixed(2)),
+        y: Number((sum.y / coords.length).toFixed(2)),
+    };
+}
+
 export function InteractiveBlueprintCanvas({
     map = null,
     waypoints = [],
     pathplans = [],
+    keepoutZones,
     vehicles = [],
     selectedWaypointId = null,
     selectedPathplanId = null,
+    selectedKeepoutZoneId = null,
     selectedVehicleId = null,
     onSelectWaypoint,
     onSelectPathplan,
+    onSelectKeepoutZone,
     onSelectVehicle,
     onClearSelection,
     mode = 'view',
@@ -631,6 +678,10 @@ export function InteractiveBlueprintCanvas({
     draftCoordinates = [],
     onAddPathPoint,
     onUpdatePathPoint,
+    draftZoneCoordinates = [],
+    onAddZonePoint,
+    onUpdateZonePoint,
+    onCompleteZone,
     defaultCornerRadius = 0.8,
     angleConstraintMode = 'ortho-45',
     snapStep = 0.5,
@@ -706,6 +757,9 @@ export function InteractiveBlueprintCanvas({
     });
     const [isShiftPressed, setIsShiftPressed] = useState(false);
     const [draggingVertexIndex, setDraggingVertexIndex] = useState<
+        number | null
+    >(null);
+    const [draggingZoneVertexIndex, setDraggingZoneVertexIndex] = useState<
         number | null
     >(null);
     const suppressNextClickRef = useRef(false);
@@ -789,6 +843,18 @@ export function InteractiveBlueprintCanvas({
             return;
         }
 
+        if (
+            draggingZoneVertexIndex !== null &&
+            onUpdateZonePoint &&
+            draftZoneCoordinates[draggingZoneVertexIndex]
+        ) {
+            onUpdateZonePoint(draggingZoneVertexIndex, {
+                x: metric.x,
+                y: metric.y,
+            });
+            return;
+        }
+
         if (mode === 'pose-estimate' && poseEstimateOrigin) {
             const dx = metric.x - poseEstimateOrigin.x;
             const dy = metric.y - poseEstimateOrigin.y;
@@ -812,6 +878,7 @@ export function InteractiveBlueprintCanvas({
         if (
             isPanning ||
             draggingVertexIndex !== null ||
+            draggingZoneVertexIndex !== null ||
             mode === 'pose-estimate'
         ) {
             return;
@@ -845,6 +912,41 @@ export function InteractiveBlueprintCanvas({
                     r: defaultCornerRadius,
                 });
             }
+        } else if (mode === 'draw-zone' && onAddZonePoint) {
+            if (draftZoneCoordinates.length >= 3) {
+                const firstVertexSvg = metricToSvg(
+                    draftZoneCoordinates[0].x,
+                    draftZoneCoordinates[0].y,
+                    calibration,
+                );
+                const distToFirstSvg = Math.hypot(
+                    pt.cx - firstVertexSvg.cx,
+                    pt.cy - firstVertexSvg.cy,
+                );
+                if (distToFirstSvg <= 18 && onCompleteZone) {
+                    onCompleteZone();
+                    return;
+                }
+            }
+
+            if (draftZoneCoordinates.length > 0) {
+                const constrained = applyAngleConstraint(
+                    draftZoneCoordinates[draftZoneCoordinates.length - 1],
+                    metric,
+                    angleConstraintMode,
+                    e.shiftKey,
+                    snapStep,
+                );
+                onAddZonePoint({
+                    x: constrained.x,
+                    y: constrained.y,
+                });
+            } else {
+                onAddZonePoint({
+                    x: metric.x,
+                    y: metric.y,
+                });
+            }
         } else if (mode === 'view') {
             onClearSelection?.();
         }
@@ -853,7 +955,10 @@ export function InteractiveBlueprintCanvas({
     const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
         if (
             e.button === 1 ||
-            (e.button === 0 && e.shiftKey && mode !== 'draw-path')
+            (e.button === 0 &&
+                e.shiftKey &&
+                mode !== 'draw-path' &&
+                mode !== 'draw-zone')
         ) {
             e.preventDefault();
             setIsPanning(true);
@@ -890,6 +995,12 @@ export function InteractiveBlueprintCanvas({
             return;
         }
 
+        if (draggingZoneVertexIndex !== null) {
+            setDraggingZoneVertexIndex(null);
+            suppressNextClickRef.current = true;
+            return;
+        }
+
         if (isPanning) {
             setIsPanning(false);
             return;
@@ -914,34 +1025,39 @@ export function InteractiveBlueprintCanvas({
         setPan({ x: 0, y: 0 });
     };
 
-    const constrainedDraftCursor =
+    const activeDraftAnchor =
         mode === 'draw-path' &&
         draftCoordinates.length > 0 &&
         draggingVertexIndex === null
-            ? applyAngleConstraint(
-                  draftCoordinates[draftCoordinates.length - 1],
-                  cursorMetric,
-                  angleConstraintMode,
-                  isShiftPressed,
-                  snapStep,
-              )
-            : {
-                  x: cursorMetric.x,
-                  y: cursorMetric.y,
-                  angleDeg: 0,
-                  lengthM: 0,
-              };
+            ? draftCoordinates[draftCoordinates.length - 1]
+            : mode === 'draw-zone' &&
+                draftZoneCoordinates.length > 0 &&
+                draggingZoneVertexIndex === null
+              ? draftZoneCoordinates[draftZoneCoordinates.length - 1]
+              : null;
 
-    const effectiveCursorMetric =
-        mode === 'draw-path' &&
-        draftCoordinates.length > 0 &&
-        draggingVertexIndex === null
-            ? {
-                  ...cursorMetric,
-                  x: constrainedDraftCursor.x,
-                  y: constrainedDraftCursor.y,
-              }
-            : cursorMetric;
+    const constrainedDraftCursor = activeDraftAnchor
+        ? applyAngleConstraint(
+              activeDraftAnchor,
+              cursorMetric,
+              angleConstraintMode,
+              isShiftPressed,
+              snapStep,
+          )
+        : {
+              x: cursorMetric.x,
+              y: cursorMetric.y,
+              angleDeg: 0,
+              lengthM: 0,
+          };
+
+    const effectiveCursorMetric = activeDraftAnchor
+        ? {
+              ...cursorMetric,
+              x: constrainedDraftCursor.x,
+              y: constrainedDraftCursor.y,
+          }
+        : cursorMetric;
 
     const cursorSvg = metricToSvg(
         effectiveCursorMetric.x,
@@ -949,6 +1065,45 @@ export function InteractiveBlueprintCanvas({
         calibration,
     );
     const originSvg = metricToSvg(0, 0, calibration);
+
+    const isNearFirstZoneVertex = (() => {
+        if (mode !== 'draw-zone' || draftZoneCoordinates.length < 3) {
+            return false;
+        }
+        const firstSvg = metricToSvg(
+            draftZoneCoordinates[0].x,
+            draftZoneCoordinates[0].y,
+            calibration,
+        );
+        const rawCursorSvg = metricToSvg(
+            cursorMetric.x,
+            cursorMetric.y,
+            calibration,
+        );
+        return (
+            Math.hypot(
+                rawCursorSvg.cx - firstSvg.cx,
+                rawCursorSvg.cy - firstSvg.cy,
+            ) <= 18
+        );
+    })();
+
+    const resolvedKeepoutZones = keepoutZones ?? map?.keepout_zones ?? [];
+
+    const activeZonesToRender = (() => {
+        if (
+            draftZoneCoordinates.length >= 3 &&
+            selectedKeepoutZoneId !== null &&
+            resolvedKeepoutZones.some((z) => z.id === selectedKeepoutZoneId)
+        ) {
+            return resolvedKeepoutZones.map((z) =>
+                z.id === selectedKeepoutZoneId
+                    ? { ...z, coordinates: draftZoneCoordinates }
+                    : z,
+            );
+        }
+        return resolvedKeepoutZones;
+    })();
 
     const activePathsToRender = (() => {
         if (draftCoordinates.length > 0) {
@@ -1019,7 +1174,10 @@ export function InteractiveBlueprintCanvas({
                     onMouseUp={handleMouseUp}
                     onClick={handleCanvasClick}
                     className={`h-full w-full drop-shadow-sm select-none ${
-                        mode === 'pick-station' || mode === 'draw-path' || mode === 'pose-estimate'
+                        mode === 'pick-station' ||
+                        mode === 'draw-path' ||
+                        mode === 'draw-zone' ||
+                        mode === 'pose-estimate'
                             ? 'cursor-crosshair'
                             : isPanning
                               ? 'cursor-grabbing'
@@ -1048,6 +1206,55 @@ export function InteractiveBlueprintCanvas({
                                 stopOpacity="0.9"
                             />
                         </linearGradient>
+
+                        {/* Diagonal Hazard Stripe Patterns for Keep-Out & Speed-Limit Zones */}
+                        <pattern
+                            id="hazardStripesRed"
+                            width="12"
+                            height="12"
+                            patternUnits="userSpaceOnUse"
+                            patternTransform="rotate(45)"
+                        >
+                            <rect
+                                width="12"
+                                height="12"
+                                fill="#ef4444"
+                                fillOpacity="0.16"
+                            />
+                            <line
+                                x1="0"
+                                y1="0"
+                                x2="0"
+                                y2="12"
+                                stroke="#dc2626"
+                                strokeOpacity="0.48"
+                                strokeWidth="5"
+                            />
+                        </pattern>
+
+                        <pattern
+                            id="hazardStripesAmber"
+                            width="12"
+                            height="12"
+                            patternUnits="userSpaceOnUse"
+                            patternTransform="rotate(45)"
+                        >
+                            <rect
+                                width="12"
+                                height="12"
+                                fill="#f59e0b"
+                                fillOpacity="0.16"
+                            />
+                            <line
+                                x1="0"
+                                y1="0"
+                                x2="0"
+                                y2="12"
+                                stroke="#d97706"
+                                strokeOpacity="0.48"
+                                strokeWidth="5"
+                            />
+                        </pattern>
 
                         {/* Arrow Marker for 2D Pose Estimate Arrow */}
                         <marker
@@ -1349,12 +1556,11 @@ export function InteractiveBlueprintCanvas({
                                 </text>
                             </g>
 
-                            {/* Keep-Out Restricted Forklift Zone */}
-                            {showKeepOutZones && (
+                            {/* Keep-Out Restricted Forklift Zone Fallback (when no DB zones loaded) */}
+                            {showKeepOutZones && activeZonesToRender.length === 0 && (
                                 <g>
                                     <rect
-                                        fill="#ffdad6"
-                                        fillOpacity="0.4"
+                                        fill="url(#hazardStripesRed)"
                                         height="52"
                                         rx="4"
                                         stroke="#ba1a1a"
@@ -1376,6 +1582,187 @@ export function InteractiveBlueprintCanvas({
                             )}
                         </g>
                     )}
+
+                    {/* =========================================================
+                        B2. DYNAMIC VECTOR KEEP-OUT & SPEED-LIMIT POLYGON ZONES
+                       ========================================================= */}
+                    {showKeepOutZones &&
+                        activeZonesToRender.map((zone) => {
+                            if (
+                                !zone.is_active ||
+                                !zone.coordinates ||
+                                zone.coordinates.length < 3
+                            ) {
+                                return null;
+                            }
+
+                            const isSelected =
+                                zone.id === selectedKeepoutZoneId;
+                            const isKeepOut = zone.zone_type === 'keep_out';
+                            const svgPts = zone.coordinates.map((pt) =>
+                                metricToSvg(pt.x, pt.y, calibration),
+                            );
+                            const pointsAttr = svgPts
+                                .map((p) => `${p.cx},${p.cy}`)
+                                .join(' ');
+                            const centroidMetric = calculatePolygonCentroid(
+                                zone.coordinates,
+                            );
+                            const centroidSvg = metricToSvg(
+                                centroidMetric.x,
+                                centroidMetric.y,
+                                calibration,
+                            );
+                            const areaM2 =
+                                zone.area_m2 ??
+                                calculatePolygonArea(zone.coordinates);
+                            const strokeColor = isKeepOut
+                                ? '#dc2626'
+                                : '#d97706';
+                            const badgeBg = isKeepOut ? '#7f1d1d' : '#78350f';
+                            const badgeText = isKeepOut ? '#fecaca' : '#fde68a';
+                            const labelStr = isKeepOut
+                                ? `🚫 ${zone.name} · ${areaM2}m²`
+                                : `⚡ ${zone.name} (${zone.speed_limit ?? 0.4}m/s)`;
+
+                            return (
+                                <g
+                                    key={`zone-${zone.id}`}
+                                    className="cursor-pointer"
+                                    onClick={(e) => {
+                                        if (
+                                            mode !== 'draw-path' &&
+                                            mode !== 'draw-zone' &&
+                                            onSelectKeepoutZone
+                                        ) {
+                                            e.stopPropagation();
+                                            onSelectKeepoutZone(zone);
+                                        }
+                                    }}
+                                >
+                                    {isSelected && (
+                                        <polygon
+                                            points={pointsAttr}
+                                            fill="none"
+                                            stroke={strokeColor}
+                                            strokeOpacity="0.25"
+                                            strokeWidth="8"
+                                            strokeLinejoin="round"
+                                        />
+                                    )}
+
+                                    <polygon
+                                        points={pointsAttr}
+                                        fill={
+                                            isKeepOut
+                                                ? 'url(#hazardStripesRed)'
+                                                : 'url(#hazardStripesAmber)'
+                                        }
+                                        stroke={strokeColor}
+                                        strokeDasharray={
+                                            isSelected ? undefined : '6 4'
+                                        }
+                                        strokeLinejoin="round"
+                                        strokeWidth={isSelected ? '2.6' : '1.8'}
+                                    />
+
+                                    {/* Centroid Telemetry Badge */}
+                                    <g
+                                        className="pointer-events-none"
+                                        transform={`translate(${centroidSvg.cx}, ${centroidSvg.cy})`}
+                                    >
+                                        <rect
+                                            fill={badgeBg}
+                                            fillOpacity="0.92"
+                                            height="18"
+                                            rx="4"
+                                            stroke={strokeColor}
+                                            strokeWidth={
+                                                isSelected ? '1.5' : '1'
+                                            }
+                                            width={Math.max(
+                                                96,
+                                                labelStr.length * 5.8,
+                                            )}
+                                            x={
+                                                -Math.max(
+                                                    96,
+                                                    labelStr.length * 5.8,
+                                                ) / 2
+                                            }
+                                            y="-9"
+                                        />
+                                        <text
+                                            className="font-mono text-[8.5px] font-bold"
+                                            fill={badgeText}
+                                            textAnchor="middle"
+                                            x="0"
+                                            y="3"
+                                        >
+                                            {labelStr}
+                                        </text>
+                                    </g>
+
+                                    {/* Draggable Polygon Corner Vertex Handles when Selected */}
+                                    {isSelected &&
+                                        svgPts.map((pt, idx) => {
+                                            const isBeingDragged =
+                                                draggingZoneVertexIndex === idx;
+                                            return (
+                                                <g
+                                                    key={`zone-${zone.id}-v-${idx}`}
+                                                    className={
+                                                        onUpdateZonePoint
+                                                            ? 'cursor-grab active:cursor-grabbing'
+                                                            : ''
+                                                    }
+                                                    transform={`translate(${pt.cx}, ${pt.cy})`}
+                                                    onMouseDown={(e) => {
+                                                        if (
+                                                            onUpdateZonePoint &&
+                                                            e.button === 0
+                                                        ) {
+                                                            e.stopPropagation();
+                                                            setDraggingZoneVertexIndex(
+                                                                idx,
+                                                            );
+                                                        }
+                                                    }}
+                                                >
+                                                    <circle
+                                                        r={
+                                                            isBeingDragged
+                                                                ? '12'
+                                                                : '9'
+                                                        }
+                                                        fill={strokeColor}
+                                                        opacity="0.22"
+                                                    />
+                                                    <circle
+                                                        r="5"
+                                                        fill={
+                                                            isBeingDragged
+                                                                ? '#f59e0b'
+                                                                : '#ffffff'
+                                                        }
+                                                        stroke={strokeColor}
+                                                        strokeWidth="2.2"
+                                                    />
+                                                    <text
+                                                        className="pointer-events-none font-mono text-[7.5px] font-bold"
+                                                        fill={strokeColor}
+                                                        textAnchor="middle"
+                                                        x="0"
+                                                        y="-8"
+                                                    >
+                                                        V{idx + 1}
+                                                    </text>
+                                                </g>
+                                            );
+                                        })}
+                                </g>
+                            );
+                        })}
 
                     {/* =========================================================
                         C. ROS 2 FRAME `map` DATUM ORIGIN CROSSHAIR [0.00m, 0.00m]
@@ -2090,8 +2477,245 @@ export function InteractiveBlueprintCanvas({
                             );
                         })()}
 
+                    {/* Interactive Keep-Out Zone Polygon Pen Tool Draft Layer */}
+                    {mode === 'draw-zone' && draftZoneCoordinates.length > 0 && (() => {
+                        const draftSvgPts = draftZoneCoordinates.map((pt) =>
+                            metricToSvg(pt.x, pt.y, calibration),
+                        );
+                        const firstSvg = draftSvgPts[0];
+                        const lastSvg = draftSvgPts[draftSvgPts.length - 1];
+                        const previewMetricPts = isNearFirstZoneVertex
+                            ? draftZoneCoordinates
+                            : [
+                                  ...draftZoneCoordinates,
+                                  {
+                                      x: effectiveCursorMetric.x,
+                                      y: effectiveCursorMetric.y,
+                                  },
+                              ];
+                        const previewSvgPts = previewMetricPts.map((pt) =>
+                            metricToSvg(pt.x, pt.y, calibration),
+                        );
+                        const previewPointsAttr = previewSvgPts
+                            .map((p) => `${p.cx},${p.cy}`)
+                            .join(' ');
+                        const liveAreaM2 =
+                            previewMetricPts.length >= 3
+                                ? calculatePolygonArea(previewMetricPts)
+                                : 0;
+                        const liveCentroid =
+                            previewMetricPts.length >= 3
+                                ? calculatePolygonCentroid(previewMetricPts)
+                                : null;
+                        const liveCentroidSvg = liveCentroid
+                            ? metricToSvg(
+                                  liveCentroid.x,
+                                  liveCentroid.y,
+                                  calibration,
+                              )
+                            : null;
+
+                        return (
+                            <g>
+                                {/* Live Translucent Polygon Area Fill Preview */}
+                                {previewSvgPts.length >= 3 && (
+                                    <polygon
+                                        points={previewPointsAttr}
+                                        fill="url(#hazardStripesRed)"
+                                        stroke="#ef4444"
+                                        strokeDasharray="5 3"
+                                        strokeWidth="1.5"
+                                        className="pointer-events-none"
+                                    />
+                                )}
+
+                                {/* Placed Polygon Edges */}
+                                {draftSvgPts.length >= 2 && (
+                                    <polyline
+                                        points={draftSvgPts
+                                            .map((p) => `${p.cx},${p.cy}`)
+                                            .join(' ')}
+                                        fill="none"
+                                        stroke="#dc2626"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth="2.5"
+                                        className="pointer-events-none"
+                                    />
+                                )}
+
+                                {/* Rubber-Band Line from Last Vertex to Cursor (or V1 if snapping) */}
+                                <line
+                                    x1={lastSvg.cx}
+                                    y1={lastSvg.cy}
+                                    x2={
+                                        isNearFirstZoneVertex
+                                            ? firstSvg.cx
+                                            : cursorSvg.cx
+                                    }
+                                    y2={
+                                        isNearFirstZoneVertex
+                                            ? firstSvg.cy
+                                            : cursorSvg.cy
+                                    }
+                                    stroke={
+                                        isNearFirstZoneVertex
+                                            ? '#10b981'
+                                            : '#ef4444'
+                                    }
+                                    strokeDasharray="4 4"
+                                    strokeWidth="2"
+                                    className="pointer-events-none"
+                                />
+
+                                {/* Closing Chord Preview back to V1 */}
+                                {draftSvgPts.length >= 2 &&
+                                    !isNearFirstZoneVertex && (
+                                        <line
+                                            x1={cursorSvg.cx}
+                                            y1={cursorSvg.cy}
+                                            x2={firstSvg.cx}
+                                            y2={firstSvg.cy}
+                                            stroke="#f87171"
+                                            strokeDasharray="2 4"
+                                            strokeOpacity="0.65"
+                                            strokeWidth="1.3"
+                                            className="pointer-events-none"
+                                        />
+                                    )}
+
+                                {/* Live Area Centroid Telemetry Badge */}
+                                {liveCentroidSvg && liveAreaM2 > 0 && (
+                                    <g
+                                        className="pointer-events-none"
+                                        transform={`translate(${liveCentroidSvg.cx}, ${liveCentroidSvg.cy})`}
+                                    >
+                                        <rect
+                                            fill="#7f1d1d"
+                                            fillOpacity="0.92"
+                                            height="18"
+                                            rx="4"
+                                            stroke="#ef4444"
+                                            strokeWidth="1.2"
+                                            width="92"
+                                            x="-46"
+                                            y="-9"
+                                        />
+                                        <text
+                                            className="font-mono text-[8.5px] font-bold"
+                                            fill="#fecaca"
+                                            textAnchor="middle"
+                                            x="0"
+                                            y="3"
+                                        >
+                                            AREA: {liveAreaM2}m²
+                                        </text>
+                                    </g>
+                                )}
+
+                                {/* Placed Polygon Vertices */}
+                                {draftSvgPts.map((pt, idx) => {
+                                    const isFirst = idx === 0;
+                                    const canClose =
+                                        isFirst &&
+                                        draftZoneCoordinates.length >= 3;
+                                    return (
+                                        <g
+                                            key={`draft-zone-v-${idx}`}
+                                            transform={`translate(${pt.cx}, ${pt.cy})`}
+                                            className={
+                                                canClose
+                                                    ? 'cursor-pointer'
+                                                    : 'pointer-events-none'
+                                            }
+                                            onClick={(e) => {
+                                                if (
+                                                    canClose &&
+                                                    onCompleteZone
+                                                ) {
+                                                    e.stopPropagation();
+                                                    onCompleteZone();
+                                                }
+                                            }}
+                                        >
+                                            {canClose &&
+                                                isNearFirstZoneVertex && (
+                                                    <circle
+                                                        r="16"
+                                                        fill="#10b981"
+                                                        opacity="0.28"
+                                                        className="animate-ping"
+                                                    />
+                                                )}
+                                            <circle
+                                                r={
+                                                    canClose &&
+                                                    isNearFirstZoneVertex
+                                                        ? '9'
+                                                        : '5.5'
+                                                }
+                                                fill={
+                                                    canClose &&
+                                                    isNearFirstZoneVertex
+                                                        ? '#10b981'
+                                                        : isFirst
+                                                          ? '#dc2626'
+                                                          : '#ffffff'
+                                                }
+                                                stroke={
+                                                    canClose &&
+                                                    isNearFirstZoneVertex
+                                                        ? '#ffffff'
+                                                        : '#dc2626'
+                                                }
+                                                strokeWidth="2.2"
+                                            />
+                                            <rect
+                                                fill={
+                                                    canClose &&
+                                                    isNearFirstZoneVertex
+                                                        ? '#065f46'
+                                                        : '#7f1d1d'
+                                                }
+                                                height="14"
+                                                rx="3"
+                                                width={
+                                                    canClose &&
+                                                    isNearFirstZoneVertex
+                                                        ? '96'
+                                                        : '26'
+                                                }
+                                                x={
+                                                    canClose &&
+                                                    isNearFirstZoneVertex
+                                                        ? '-48'
+                                                        : '-13'
+                                                }
+                                                y="-22"
+                                            />
+                                            <text
+                                                className="font-mono text-[8px] font-bold"
+                                                fill="#ffffff"
+                                                textAnchor="middle"
+                                                x="0"
+                                                y="-12.5"
+                                            >
+                                                {canClose &&
+                                                isNearFirstZoneVertex
+                                                    ? 'CLICK TO CLOSE LOOP'
+                                                    : `V${idx + 1}`}
+                                            </text>
+                                        </g>
+                                    );
+                                })}
+                            </g>
+                        );
+                    })()}
+
                     {/* Interactive Placement Ghost Crosshair */}
-                    {(mode === 'pick-station' || mode === 'draw-path') && (
+                    {(mode === 'pick-station' ||
+                        mode === 'draw-path' ||
+                        mode === 'draw-zone') && (
                         <g
                             className="pointer-events-none"
                             transform={`translate(${cursorSvg.cx}, ${cursorSvg.cy})`}
@@ -2099,40 +2723,53 @@ export function InteractiveBlueprintCanvas({
                             <circle
                                 cx="0"
                                 cy="0"
-                                fill="#00a3ff"
+                                fill={
+                                    mode === 'draw-zone' ? '#ef4444' : '#00a3ff'
+                                }
                                 fillOpacity="0.2"
                                 r="16"
-                                stroke="#00a3ff"
+                                stroke={
+                                    mode === 'draw-zone' ? '#ef4444' : '#00a3ff'
+                                }
                                 strokeDasharray="3 3"
                                 strokeWidth="1.5"
                             />
-                            <circle cx="0" cy="0" fill="#00a3ff" r="4" />
+                            <circle
+                                cx="0"
+                                cy="0"
+                                fill={
+                                    mode === 'draw-zone' ? '#ef4444' : '#00a3ff'
+                                }
+                                r="4"
+                            />
                             <rect
                                 fill="#0b1c30"
                                 height={
-                                    mode === 'draw-path'
+                                    mode === 'draw-path' || mode === 'draw-zone'
                                         ? '30'
                                         : '18'
                                 }
                                 rx="3"
                                 width={
-                                    mode === 'draw-path'
-                                        ? '148'
+                                    mode === 'draw-path' || mode === 'draw-zone'
+                                        ? '156'
                                         : '92'
                                 }
                                 x="12"
                                 y={
-                                    mode === 'draw-path'
+                                    mode === 'draw-path' || mode === 'draw-zone'
                                         ? '-32'
                                         : '-22'
                                 }
                             />
                             <text
                                 className="font-mono text-[9px] font-bold"
-                                fill="#98cbff"
+                                fill={
+                                    mode === 'draw-zone' ? '#fecaca' : '#98cbff'
+                                }
                                 x="18"
                                 y={
-                                    mode === 'draw-path'
+                                    mode === 'draw-path' || mode === 'draw-zone'
                                         ? '-20'
                                         : '-10'
                                 }
@@ -2158,6 +2795,35 @@ export function InteractiveBlueprintCanvas({
                                         y="-8"
                                     >
                                         Click map to place WP-1 (Start)
+                                    </text>
+                                ))}
+                            {mode === 'draw-zone' &&
+                                (isNearFirstZoneVertex ? (
+                                    <text
+                                        className="font-mono text-[8px] font-semibold"
+                                        fill="#6ee7b7"
+                                        x="18"
+                                        y="-8"
+                                    >
+                                        Click V1 to close polygon loop
+                                    </text>
+                                ) : draftZoneCoordinates.length > 0 ? (
+                                    <text
+                                        className="font-mono text-[8px] font-semibold"
+                                        fill="#fca5a5"
+                                        x="18"
+                                        y="-8"
+                                    >
+                                        L:{constrainedDraftCursor.lengthM.toFixed(1)}m | ∠{constrainedDraftCursor.angleDeg}° | V:{draftZoneCoordinates.length + 1}
+                                    </text>
+                                ) : (
+                                    <text
+                                        className="font-mono text-[8px] font-semibold"
+                                        fill="#fca5a5"
+                                        x="18"
+                                        y="-8"
+                                    >
+                                        Click map to place Zone V1
                                     </text>
                                 ))}
                         </g>

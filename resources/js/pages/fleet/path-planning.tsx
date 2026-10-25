@@ -4,12 +4,19 @@ import { toast } from 'sonner';
 import {
     type AngleConstraintMode,
     calculatePathLength,
+    calculatePolygonArea,
     computeFilletedPathGeometry,
     discretizeFilletedPathForRos2,
     InteractiveBlueprintCanvas,
 } from '@/components/fleet/interactive-blueprint-canvas';
 import { StatusBadge } from '@/components/fleet/status-badge';
-import type { FacilityMap, PathCoordinate, Pathplan } from '@/types';
+import type {
+    FacilityMap,
+    KeepoutZone,
+    KeepoutZoneType,
+    PathCoordinate,
+    Pathplan,
+} from '@/types';
 
 interface PathPlanningProps {
     maps: FacilityMap[];
@@ -38,7 +45,22 @@ export default function PathPlanningPage({
     );
     const [snapEnabled, setSnapEnabled] = useState(true);
     const [showCostmap, setShowCostmap] = useState(true);
+    const [showKeepOutZones, setShowKeepOutZones] = useState(true);
     const [flowFilter, setFlowFilter] = useState<'all' | 'bi' | 'uni'>('all');
+
+    // Keep-Out Zone Polygon Pen Tool State
+    const [zones, setZones] = useState<KeepoutZone[]>(
+        activeMap?.keepout_zones ?? maps[0]?.keepout_zones ?? [],
+    );
+    const [isDrawingZone, setIsDrawingZone] = useState(false);
+    const [selectedZone, setSelectedZone] = useState<KeepoutZone | null>(null);
+    const [draftZoneCoords, setDraftZoneCoords] = useState<PathCoordinate[]>(
+        [],
+    );
+    const [zoneName, setZoneName] = useState('RESTRICTED-ZONE-01');
+    const [zoneType, setZoneType] = useState<KeepoutZoneType>('keep_out');
+    const [zoneSpeedLimit, setZoneSpeedLimit] = useState('0.40');
+    const [savingZone, setSavingZone] = useState(false);
 
     // Editor Form State
     const [formName, setFormName] = useState(
@@ -153,10 +175,132 @@ export default function PathPlanningPage({
     };
 
     const handleClearSelection = () => {
-        if (isDrawing) return;
+        if (isDrawing || isDrawingZone) return;
         setSelectedPath(null);
         setEditingPathId(null);
         setDraftCoords([]);
+        setSelectedZone(null);
+        setDraftZoneCoords([]);
+    };
+
+    const startNewZoneMode = () => {
+        setIsDrawing(false);
+        setSelectedPath(null);
+        setEditingPathId(null);
+        setDraftCoords([]);
+        setSelectedZone(null);
+        setDraftZoneCoords([]);
+        setZoneName(`RESTRICTED-ZONE-0${zones.length + 1}`);
+        setZoneType('keep_out');
+        setZoneSpeedLimit('0.40');
+        setShowKeepOutZones(true);
+        setIsDrawingZone(true);
+        toast.info(
+            'Polygon Keep-Out Pen Active: Click 3+ corners on the map, then click V1 or "Close & Save Zone".',
+        );
+    };
+
+    const handleSelectKeepoutZone = (zone: KeepoutZone) => {
+        setIsDrawing(false);
+        setIsDrawingZone(false);
+        setSelectedPath(null);
+        setEditingPathId(null);
+        setDraftCoords([]);
+        setSelectedZone(zone);
+        setDraftZoneCoords(zone.coordinates ?? []);
+        setZoneName(zone.name);
+        setZoneType(zone.zone_type);
+        setZoneSpeedLimit(String(zone.speed_limit ?? 0.4));
+    };
+
+    const handleAddZonePoint = (coord: PathCoordinate) => {
+        setDraftZoneCoords((prev) => [...prev, coord]);
+    };
+
+    const handleUpdateZonePoint = (index: number, coord: PathCoordinate) => {
+        setDraftZoneCoords((prev) =>
+            prev.map((pt, i) => (i === index ? coord : pt)),
+        );
+    };
+
+    const handleSaveKeepoutZone = async () => {
+        if (draftZoneCoords.length < 3) {
+            toast.error('A polygon zone requires at least 3 corner vertices.');
+            return;
+        }
+
+        setSavingZone(true);
+        const payload = {
+            name:
+                zoneName.trim() || `RESTRICTED-ZONE-0${zones.length + 1}`,
+            zone_type: zoneType,
+            speed_limit:
+                zoneType === 'speed_limit'
+                    ? parseFloat(zoneSpeedLimit) || 0.4
+                    : null,
+            color: zoneType === 'keep_out' ? '#dc2626' : '#d97706',
+            is_active: selectedZone ? selectedZone.is_active : true,
+            coordinates: draftZoneCoords,
+        };
+
+        try {
+            const url = selectedZone
+                ? `/api/keepout-zones/${selectedZone.id}`
+                : `/api/maps/${currentMapId}/keepout-zones`;
+            const method = selectedZone ? 'PUT' : 'POST';
+
+            const response = await fetch(url, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const json = await response.json();
+            if (response.ok && json.data) {
+                const savedZone: KeepoutZone = json.data;
+                setZones((prev) =>
+                    selectedZone
+                        ? prev.map((z) =>
+                              z.id === savedZone.id ? savedZone : z,
+                          )
+                        : [...prev, savedZone],
+                );
+                setSelectedZone(savedZone);
+                setDraftZoneCoords(savedZone.coordinates ?? []);
+                setIsDrawingZone(false);
+                toast.success(
+                    `Zone '${savedZone.name}' (${savedZone.area_m2 ?? calculatePolygonArea(draftZoneCoords)} m²) saved & rasterized to Nav2 costmap mask.`,
+                );
+            } else {
+                toast.error(json.message || 'Failed to save keep-out zone.');
+            }
+        } catch {
+            toast.error('Network error while saving keep-out zone.');
+        } finally {
+            setSavingZone(false);
+        }
+    };
+
+    const handleDeleteKeepoutZone = async (zone: KeepoutZone) => {
+        try {
+            const response = await fetch(`/api/keepout-zones/${zone.id}`, {
+                method: 'DELETE',
+                headers: { Accept: 'application/json' },
+            });
+            if (response.ok) {
+                setZones((prev) => prev.filter((z) => z.id !== zone.id));
+                if (selectedZone?.id === zone.id) {
+                    setSelectedZone(null);
+                    setDraftZoneCoords([]);
+                }
+                toast.success(`Zone '${zone.name}' deleted.`);
+            }
+        } catch {
+            toast.error('Failed to delete keep-out zone.');
+        }
     };
 
     const handleSavePathplan = async () => {
@@ -319,18 +463,32 @@ export default function PathPlanningPage({
                         map={activeMap}
                         waypoints={activeMap?.waypoints ?? []}
                         pathplans={pathplans}
+                        keepoutZones={zones}
                         selectedPathplanId={selectedPath?.id ?? null}
+                        selectedKeepoutZoneId={selectedZone?.id ?? null}
                         onSelectPathplan={selectExistingPath}
+                        onSelectKeepoutZone={handleSelectKeepoutZone}
                         onClearSelection={handleClearSelection}
-                        mode={isDrawing ? 'draw-path' : 'view'}
+                        mode={
+                            isDrawingZone
+                                ? 'draw-zone'
+                                : isDrawing
+                                  ? 'draw-path'
+                                  : 'view'
+                        }
                         draftCoordinates={draftCoords}
                         onAddPathPoint={handleAddPathPoint}
                         onUpdatePathPoint={handleUpdatePathPoint}
+                        draftZoneCoordinates={draftZoneCoords}
+                        onAddZonePoint={handleAddZonePoint}
+                        onUpdateZonePoint={handleUpdateZonePoint}
+                        onCompleteZone={handleSaveKeepoutZone}
                         defaultCornerRadius={effectiveCornerRadius}
                         angleConstraintMode={angleConstraintMode}
                         snapStep={snapEnabled ? 0.5 : 0}
                         inflationRadius={inflationCorridor}
                         showCostmap={showCostmap}
+                        showKeepOutZones={showKeepOutZones}
                         resolution={activeMap?.resolution ?? 0.05}
                         hudPosition="top-right"
                     />
@@ -365,6 +523,20 @@ export default function PathPlanningPage({
                             layers
                         </span>
                         Costmap
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setShowKeepOutZones((k) => !k)}
+                        className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 font-label-sm text-xs transition-all ${
+                            showKeepOutZones
+                                ? 'bg-red-50 font-semibold text-red-700 ring-1 ring-red-200'
+                                : 'text-on-surface-variant hover:bg-slate-100'
+                        }`}
+                    >
+                        <span className="material-symbols-outlined text-[16px]">
+                            do_not_disturb_on
+                        </span>
+                        Keep-Out ({zones.length})
                     </button>
                 </div>
 
@@ -421,6 +593,58 @@ export default function PathPlanningPage({
                     </div>
                 )}
 
+                {/* Active Keep-Out Polygon Drawing Banner */}
+                {isDrawingZone && (
+                    <div className="pointer-events-auto absolute top-4 left-[580px] z-30 flex items-center gap-space-md rounded-xl border border-red-400/50 bg-red-950/95 px-space-lg py-space-sm text-white shadow-lg backdrop-blur-md">
+                        <span className="material-symbols-outlined text-[20px] text-red-400">
+                            pentagon
+                        </span>
+                        <div className="flex flex-col">
+                            <span className="font-headline-sm text-headline-sm tracking-tight text-white uppercase">
+                                {draftZoneCoords.length === 0
+                                    ? 'Keep-Out Polygon Pen Active (Click map to place V1)'
+                                    : `Keep-Out Polygon Pen (${draftZoneCoords.length} Vertices · ${calculatePolygonArea(draftZoneCoords)} m²)`}
+                            </span>
+                            <span className="font-label-sm text-label-sm text-red-200">
+                                Click 3+ corners on the map, then click V1 or
+                                &ldquo;Close &amp; Save Zone&rdquo; to rasterize
+                                Nav2 costmap mask.
+                            </span>
+                        </div>
+                        {draftZoneCoords.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setDraftZoneCoords((prev) =>
+                                        prev.slice(0, -1),
+                                    )
+                                }
+                                className="cursor-pointer rounded bg-white/15 px-2.5 py-1 font-label-sm text-label-sm text-white uppercase hover:bg-white/25"
+                            >
+                                Undo Vertex
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsDrawingZone(false);
+                                setDraftZoneCoords([]);
+                            }}
+                            className="cursor-pointer rounded bg-white/15 px-2.5 py-1 font-label-sm text-label-sm text-red-200 uppercase hover:bg-white/25"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            disabled={draftZoneCoords.length < 3 || savingZone}
+                            onClick={handleSaveKeepoutZone}
+                            className="cursor-pointer rounded bg-emerald-500 px-3 py-1 font-label-sm text-label-sm font-bold text-slate-950 uppercase disabled:opacity-40"
+                        >
+                            {savingZone ? 'Saving...' : 'Close & Save Zone'}
+                        </button>
+                    </div>
+                )}
+
                 {/* 2. Half-Screen Floating Left Cockpit Panel (Pure White 40% Transparent Background Wrapping Cards) */}
                 <aside className="relative z-10 flex h-full w-full max-w-[560px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm">
                     <div className="flex flex-col gap-space-md p-margin-lg">
@@ -441,20 +665,33 @@ export default function PathPlanningPage({
                                     </h1>
                                     <p className="font-body-sm text-body-sm text-tertiary">
                                         Configure virtual guidance tracks,
-                                        tangential corner fillets, and velocity
-                                        limits.
+                                        tangential corner fillets, and keep-out
+                                        masks.
                                     </p>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={startNewPathMode}
-                                    className="flex cursor-pointer items-center gap-space-xs rounded-lg bg-primary px-space-md py-2.5 font-label-sm text-label-sm font-semibold tracking-wider text-on-primary uppercase shadow-xs transition-all hover:bg-on-primary-fixed-variant active:scale-95"
-                                >
-                                    <span className="material-symbols-outlined text-[16px]">
-                                        add_road
-                                    </span>
-                                    <span>+ NEW PATH</span>
-                                </button>
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={startNewZoneMode}
+                                        className="flex cursor-pointer items-center gap-1 rounded-lg bg-red-600 px-3 py-2.5 font-label-sm text-label-sm font-semibold tracking-wider text-white uppercase shadow-xs transition-all hover:bg-red-700 active:scale-95"
+                                        title="Draw Restricted Keep-Out Polygon Mask for Nav2 Global/Local Planner"
+                                    >
+                                        <span className="material-symbols-outlined text-[16px]">
+                                            pentagon
+                                        </span>
+                                        <span>+ KEEP-OUT</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={startNewPathMode}
+                                        className="flex cursor-pointer items-center gap-space-xs rounded-lg bg-primary px-space-md py-2.5 font-label-sm text-label-sm font-semibold tracking-wider text-on-primary uppercase shadow-xs transition-all hover:bg-on-primary-fixed-variant active:scale-95"
+                                    >
+                                        <span className="material-symbols-outlined text-[16px]">
+                                            add_road
+                                        </span>
+                                        <span>+ NEW PATH</span>
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Active Map Selector */}
@@ -989,6 +1226,124 @@ export default function PathPlanningPage({
                                 )}
                             </div>
                         </div>
+                    ) : selectedZone || isDrawingZone ? (
+                        <div className="rounded-xl border border-red-200 bg-white p-space-lg shadow-xs">
+                            <div className="mb-space-sm flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <span className="h-3 w-3 rounded-full bg-red-600 ring-4 ring-red-100" />
+                                    <div>
+                                        <div className="font-headline-sm text-headline-sm font-bold text-on-surface uppercase">
+                                            {zoneName || 'NEW-KEEPOUT-ZONE'}
+                                        </div>
+                                        <div className="font-mono text-[10px] text-tertiary">
+                                            {draftZoneCoords.length} vertices •{' '}
+                                            {calculatePolygonArea(
+                                                draftZoneCoords,
+                                            )}{' '}
+                                            m² • ROS 2 Nav2 Costmap Filter
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsDrawingZone(false);
+                                        setSelectedZone(null);
+                                        setDraftZoneCoords([]);
+                                    }}
+                                    className="cursor-pointer font-mono text-xs text-tertiary hover:text-on-surface"
+                                >
+                                    Close
+                                </button>
+                            </div>
+
+                            <div className="mb-space-sm grid grid-cols-2 gap-2">
+                                <div className="rounded-lg bg-surface-container-lowest p-2">
+                                    <label className="block font-label-sm text-[10px] text-tertiary uppercase">
+                                        Zone Identifier
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={zoneName}
+                                        onChange={(e) =>
+                                            setZoneName(e.target.value)
+                                        }
+                                        className="mt-0.5 w-full bg-transparent font-mono text-xs font-bold text-on-surface focus:outline-none"
+                                    />
+                                </div>
+                                <div className="rounded-lg bg-surface-container-lowest p-2">
+                                    <label className="block font-label-sm text-[10px] text-tertiary uppercase">
+                                        Nav2 Filter Type
+                                    </label>
+                                    <select
+                                        value={zoneType}
+                                        onChange={(e) =>
+                                            setZoneType(
+                                                e.target
+                                                    .value as KeepoutZoneType,
+                                            )
+                                        }
+                                        className="mt-0.5 w-full cursor-pointer bg-transparent font-mono text-xs font-bold text-red-700 focus:outline-none"
+                                    >
+                                        <option value="keep_out">
+                                            🚫 Keep-Out (Lethal Cost 254)
+                                        </option>
+                                        <option value="speed_limit">
+                                            ⚡ Speed-Limit Zone
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {zoneType === 'speed_limit' && (
+                                <div className="mb-space-sm rounded-lg bg-surface-container-lowest p-2">
+                                    <label className="block font-label-sm text-[10px] text-tertiary uppercase">
+                                        Max Speed Limit (m/s)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.05"
+                                        min="0.1"
+                                        max="3.0"
+                                        value={zoneSpeedLimit}
+                                        onChange={(e) =>
+                                            setZoneSpeedLimit(e.target.value)
+                                        }
+                                        className="mt-0.5 w-full bg-transparent font-mono text-xs font-bold text-amber-700 focus:outline-none"
+                                    />
+                                </div>
+                            )}
+
+                            <div className="flex items-center gap-2">
+                                {selectedZone && (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            handleDeleteKeepoutZone(
+                                                selectedZone,
+                                            )
+                                        }
+                                        className="cursor-pointer rounded-lg bg-red-50 px-3 py-2 font-label-sm text-xs font-bold text-red-700 uppercase hover:bg-red-100"
+                                    >
+                                        Delete Zone
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    disabled={
+                                        draftZoneCoords.length < 3 || savingZone
+                                    }
+                                    onClick={handleSaveKeepoutZone}
+                                    className="flex-1 cursor-pointer rounded-lg bg-red-600 px-4 py-2 font-label-sm text-xs font-bold text-white uppercase shadow-xs hover:bg-red-700 disabled:opacity-40"
+                                >
+                                    {savingZone
+                                        ? 'Rasterizing Mask...'
+                                        : selectedZone
+                                          ? 'Update & Rasterize Mask'
+                                          : 'Save & Rasterize Zone'}
+                                </button>
+                            </div>
+                        </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white/80 p-8 text-center shadow-xs">
                             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-container-low text-primary">
@@ -997,22 +1352,34 @@ export default function PathPlanningPage({
                                 </span>
                             </div>
                             <h3 className="font-headline-sm text-headline-sm font-semibold text-on-surface">
-                                No Guidance Path Selected
+                                No Guidance Path or Zone Selected
                             </h3>
                             <p className="mt-1 max-w-xs font-body-sm text-body-sm text-tertiary">
-                                Click any trajectory line on the blueprint map or select from the transit lane manifest below to inspect and edit, or click{' '}
-                                <strong className="text-on-surface">+ NEW PATH</strong> to draw.
+                                Click any trajectory line or restricted polygon on the blueprint map to inspect and edit, or use{' '}
+                                <strong className="text-on-surface">+ NEW PATH</strong> / <strong className="text-red-600">+ KEEP-OUT</strong> to draw.
                             </p>
-                            <button
-                                type="button"
-                                onClick={startNewPathMode}
-                                className="mt-4 flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-4 py-2 font-label-sm text-xs font-semibold text-on-primary uppercase shadow-xs transition-all hover:bg-on-primary-fixed-variant"
-                            >
-                                <span className="material-symbols-outlined text-[16px]">
-                                    add_road
-                                </span>
-                                <span>+ NEW PATH</span>
-                            </button>
+                            <div className="mt-4 flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={startNewZoneMode}
+                                    className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-red-600 px-3.5 py-2 font-label-sm text-xs font-semibold text-white uppercase shadow-xs transition-all hover:bg-red-700"
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">
+                                        pentagon
+                                    </span>
+                                    <span>+ KEEP-OUT ZONE</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={startNewPathMode}
+                                    className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-primary px-4 py-2 font-label-sm text-xs font-semibold text-on-primary uppercase shadow-xs transition-all hover:bg-on-primary-fixed-variant"
+                                >
+                                    <span className="material-symbols-outlined text-[16px]">
+                                        add_road
+                                    </span>
+                                    <span>+ NEW PATH</span>
+                                </button>
+                            </div>
                         </div>
                     )}
 

@@ -25,8 +25,13 @@ class MapController extends Controller
      */
     public function index(): JsonResponse
     {
-        $maps = Map::with(['waypoints', 'pathplans'])
-            ->withCount(['waypoints', 'pathplans'])
+        $relations = ['waypoints', 'pathplans'];
+        if (\Illuminate\Support\Facades\Schema::hasTable('keepout_zones')) {
+            $relations[] = 'keepoutZones';
+        }
+
+        $maps = Map::with($relations)
+            ->withCount($relations)
             ->latest()
             ->get();
 
@@ -195,6 +200,31 @@ class MapController extends Controller
             'success' => true,
             'message' => 'Map updated successfully.',
             'data' => $map->fresh(['waypoints', 'pathplans']),
+        ]);
+    }
+
+    /**
+     * Activate the specified map as the primary facility map for Nav2 and fleet operations.
+     */
+    public function activate(Map $map): JsonResponse
+    {
+        Map::query()->update(['is_active' => false]);
+        $map->update(['is_active' => true]);
+
+        SystemLog::create([
+            'action' => "Activated facility map '{$map->name}' (ID #{$map->id}) as primary Nav2 active map",
+            'level' => 'info',
+            'context' => [
+                'map_id' => $map->id,
+                'resolution' => $map->resolution,
+                'origin' => [$map->origin_x, $map->origin_y, $map->origin_yaw ?? 0],
+            ],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Map '{$map->name}' is now active.",
+            'data' => $map->fresh(['waypoints', 'pathplans', 'keepoutZones']),
         ]);
     }
 

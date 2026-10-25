@@ -216,8 +216,8 @@ class MapPackageService
             $importedWaypointsCount = $this->importStationsFromYaml($map, $stationsYamlFile->getRealPath());
         }
 
-        $map->load(['waypoints', 'pathplans']);
-        $map->loadCount(['waypoints', 'pathplans']);
+        $map->load(['waypoints', 'pathplans', 'keepoutZones']);
+        $map->loadCount(['waypoints', 'pathplans', 'keepoutZones']);
 
         return [
             'map' => $map,
@@ -399,11 +399,105 @@ class MapPackageService
     }
 
     /**
+     * Rasterize active vector KeepoutZone polygons into a ROS 2 Nav2 Costmap Filter mask PNG (`keepout_zones.png`).
+     *
+     * In Nav2 KeepOutFilter (trinary/scale mode with negate=0):
+     * - White (255) = Free space (0% cost)
+     * - Black (0)   = Lethal Keep-Out obstacle (100% / cost 254)
+     * - Gray (96)   = Speed-limit / Caution zone (~62% cost)
+     */
+    public function rasterizeKeepoutMask(Map $map): ?string
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('keepout_zones')) {
+            return $map->keepout_path;
+        }
+
+        $activeZones = $map->keepoutZones()->where('is_active', true)->get();
+        if ($activeZones->isEmpty()) {
+            return $map->keepout_path;
+        }
+
+        $width = max(100, (int) ($map->width_px ?: 460));
+        $height = max(100, (int) ($map->height_px ?: 300));
+        $resolution = max(0.005, (float) ($map->resolution ?: 0.05));
+        $originX = (float) ($map->origin_x ?? -10.0);
+        $originY = (float) ($map->origin_y ?? -10.0);
+
+        $im = imagecreatetruecolor($width, $height);
+        $whiteFree = imagecolorallocate($im, 255, 255, 255);
+        $blackLethal = imagecolorallocate($im, 0, 0, 0);
+        $graySpeedLimit = imagecolorallocate($im, 96, 96, 96);
+
+        imagefilledrectangle($im, 0, 0, $width - 1, $height - 1, $whiteFree);
+
+        foreach ($activeZones as $zone) {
+            $coords = $zone->coordinates ?? [];
+            if (! is_array($coords) || count($coords) < 3) {
+                continue;
+            }
+
+            $flatPoints = [];
+            foreach ($coords as $pt) {
+                $mx = (float) ($pt['x'] ?? 0.0);
+                $my = (float) ($pt['y'] ?? 0.0);
+
+                $u = (int) round(($mx - $originX) / $resolution);
+                $v = (int) round($height - (($my - $originY) / $resolution));
+
+                $flatPoints[] = max(0, min($width - 1, $u));
+                $flatPoints[] = max(0, min($height - 1, $v));
+            }
+
+            $fillColor = $zone->type === 'keep_out' ? $blackLethal : $graySpeedLimit;
+            imagefilledpolygon($im, $flatPoints, $fillColor);
+        }
+
+        $baseDir = $map->image_path && str_contains($map->image_path, '/')
+            ? dirname($map->image_path)
+            : 'maps/map_'.$map->id;
+
+        if ($baseDir === '.' || $baseDir === 'maps') {
+            $baseDir = 'maps/map_'.$map->id;
+        }
+
+        Storage::disk('public')->makeDirectory($baseDir);
+        $keepoutRelPath = $baseDir.'/keepout_zones.png';
+        $destFullPath = Storage::disk('public')->path($keepoutRelPath);
+
+        imagepng($im, $destFullPath, 0);
+        imagedestroy($im);
+
+        $maskYaml = Yaml::dump([
+            'image' => 'keepout_zones.png',
+            'mode' => 'trinary',
+            'resolution' => $resolution,
+            'origin' => [$originX, $originY, (float) ($map->origin_yaw ?? 0.0)],
+            'negate' => 0,
+            'occupied_thresh' => 0.65,
+            'free_thresh' => 0.25,
+        ]);
+        Storage::disk('public')->put($baseDir.'/keepout_mask.yaml', $maskYaml);
+
+        if ($map->keepout_path !== $keepoutRelPath) {
+            $map->update(['keepout_path' => $keepoutRelPath]);
+        }
+
+        return $keepoutRelPath;
+    }
+
+    /**
      * Build a complete downloadable ROS 2 .zip bundle for a Map.
      */
     public function exportZipPackage(Map $map): string
     {
         $map->loadMissing(['waypoints', 'pathplans']);
+        if (\Illuminate\Support\Facades\Schema::hasTable('keepout_zones')) {
+            $map->loadMissing(['keepoutZones']);
+            if ($map->keepoutZones->isNotEmpty()) {
+                $this->rasterizeKeepoutMask($map);
+                $map->refresh();
+            }
+        }
         $slug = Str::slug($map->name ?: 'ros2_map');
         $tempZipPath = sys_get_temp_dir().'/'.$slug.'_'.uniqid().'.zip';
 
@@ -443,9 +537,35 @@ class MapPackageService
         ]);
         $zip->addFromString($slug.'.yaml', $nav2Yaml);
 
-        // Optional Keepout PNG
+        // Optional Keepout PNG & Mask YAML
         if ($map->keepout_path && Storage::disk('public')->exists($map->keepout_path)) {
             $zip->addFile(Storage::disk('public')->path($map->keepout_path), 'keepout_zones.png');
+            $keepoutMaskYaml = Yaml::dump([
+                'image' => 'keepout_zones.png',
+                'mode' => 'trinary',
+                'resolution' => (float) $map->resolution,
+                'origin' => [(float) $map->origin_x, (float) $map->origin_y, (float) ($map->origin_yaw ?? 0.0)],
+                'negate' => 0,
+                'occupied_thresh' => 0.65,
+                'free_thresh' => 0.25,
+            ]);
+            $zip->addFromString('keepout_mask.yaml', $keepoutMaskYaml);
+        }
+
+        // Export vector keepout_zones.yaml if zones exist
+        if (\Illuminate\Support\Facades\Schema::hasTable('keepout_zones') && $map->relationLoaded('keepoutZones') && $map->keepoutZones->isNotEmpty()) {
+            $zonesArr = [];
+            foreach ($map->keepoutZones as $zone) {
+                $zonesArr[$zone->name] = [
+                    'type' => $zone->type,
+                    'is_active' => (bool) $zone->is_active,
+                    'speed_limit' => $zone->speed_limit,
+                    'area_m2' => $zone->area_m2,
+                    'polygon' => $zone->coordinates,
+                    'description' => $zone->description,
+                ];
+            }
+            $zip->addFromString('keepout_zones.yaml', Yaml::dump(['keepout_zones' => $zonesArr], 4, 2));
         }
 
         // Optional SLAM Toolbox posegraph & data
