@@ -1284,19 +1284,24 @@ export function InteractiveBlueprintCanvas({
                             />
                         </filter>
 
-                        {/* Red Keep-Out Filter Mask */}
+                        {/* Red Keep-Out Filter Mask (strictly bounded to image dimensions) */}
                         <filter
                             id="keepoutRedMaskFilter"
+                            x="0%"
+                            y="0%"
+                            width="100%"
+                            height="100%"
                             colorInterpolationFilters="sRGB"
                         >
                             <feColorMatrix
                                 type="matrix"
                                 values="
-                                    -1 0  0 0 0.85
-                                    0  0  0 0 0.10
-                                    0  0  0 0 0.10
-                                    -1 0  0 0 0.90"
+                                    0  0 0 0 0.85
+                                    0  0 0 0 0.10
+                                    0  0 0 0 0.10
+                                    -1 0 0 1 0"
                             />
+                            <feComposite in2="SourceAlpha" operator="in" />
                         </filter>
 
                         <pattern
@@ -1391,20 +1396,22 @@ export function InteractiveBlueprintCanvas({
                                 />
                             )}
 
-                            {/* Optional Keep-Out Mask Layer from .zip */}
-                            {showKeepOutZones && map.keepout_url && (
-                                <image
-                                    href={map.keepout_url}
-                                    x={calibration.renderX}
-                                    y={calibration.renderY}
-                                    width={calibration.renderW}
-                                    height={calibration.renderH}
-                                    preserveAspectRatio="none"
-                                    opacity="0.45"
-                                    filter="url(#keepoutRedMaskFilter)"
-                                    style={{ imageRendering: 'pixelated' }}
-                                />
-                            )}
+                            {/* Optional Keep-Out Mask Layer from .zip (fallback when no dynamic vector zones defined) */}
+                            {showKeepOutZones &&
+                                activeZonesToRender.length === 0 &&
+                                map.keepout_url && (
+                                    <image
+                                        href={map.keepout_url}
+                                        x={calibration.renderX}
+                                        y={calibration.renderY}
+                                        width={calibration.renderW}
+                                        height={calibration.renderH}
+                                        preserveAspectRatio="none"
+                                        opacity="0.45"
+                                        filter="url(#keepoutRedMaskFilter)"
+                                        style={{ imageRendering: 'pixelated' }}
+                                    />
+                                )}
 
                             {/* Map Dimension & Origin Calibration Caption */}
                             <text
