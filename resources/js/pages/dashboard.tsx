@@ -212,6 +212,7 @@ export default function Dashboard({
         'all' | 'charging' | 'pd' | 'standby'
     >('all');
     const [stationPickMode, setStationPickMode] = useState(false);
+    const [stationSnapEnabled, setStationSnapEnabled] = useState(true);
     const [stationModalOpen, setStationModalOpen] = useState(false);
     const [editingStation, setEditingStation] = useState<Waypoint | null>(null);
     const [stationFormName, setStationFormName] = useState('ST-CHARGE-03');
@@ -928,6 +929,7 @@ export default function Dashboard({
                             }
                             onPickCoordinate={handleCanvasPickCoordinate}
                             onPoseEstimate={handleCanvasPoseEstimate}
+                            snapStep={stationSnapEnabled ? 0.5 : 0}
                             resolution={activeMap?.resolution ?? 0.05}
                             hudPosition="bottom-right"
                         />
@@ -1544,10 +1546,84 @@ export default function Dashboard({
                         </div>
                         <button
                             type="button"
+                            onClick={() => {
+                                setStationSnapEnabled((s) => {
+                                    const next = !s;
+                                    toast.info(
+                                        next
+                                            ? 'Grid Snap: 0.50m ON'
+                                            : 'Grid Snap: OFF (Freeform)',
+                                    );
+                                    return next;
+                                });
+                            }}
+                            className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono text-xs font-semibold transition-all ${
+                                stationSnapEnabled
+                                    ? 'bg-primary text-white shadow-xs'
+                                    : 'bg-white/15 text-slate-300 hover:bg-white/25'
+                            }`}
+                            title="Toggle 0.50m Grid Snap"
+                        >
+                            <span className="material-symbols-outlined text-[15px]">
+                                grid_3x3
+                            </span>
+                            <span>
+                                {stationSnapEnabled
+                                    ? 'Snap: 0.50m'
+                                    : 'Snap: OFF (Free)'}
+                            </span>
+                        </button>
+                        <button
+                            type="button"
                             onClick={() => setStationPickMode(false)}
                             className="rounded bg-white/15 px-2.5 py-1 font-label-sm text-[10px] font-bold uppercase hover:bg-white/25"
                         >
                             Cancel
+                        </button>
+                    </div>
+                )}
+
+                {activeSection === 'stations' && !stationPickMode && (
+                    <div className="pointer-events-auto absolute top-4 right-6 z-20 hidden items-center gap-2 rounded-xl border border-slate-200/80 bg-white/95 px-3 py-1.5 shadow-md backdrop-blur-md xl:flex">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setStationSnapEnabled((s) => {
+                                    const next = !s;
+                                    toast.info(
+                                        next
+                                            ? 'Grid Snap: 0.50m ON'
+                                            : 'Grid Snap: OFF (Freeform)',
+                                    );
+                                    return next;
+                                });
+                            }}
+                            className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono text-xs font-semibold transition-all ${
+                                stationSnapEnabled
+                                    ? 'bg-primary-container font-semibold text-on-primary-container shadow-2xs'
+                                    : 'text-on-surface-variant hover:bg-slate-100'
+                            }`}
+                            title="Toggle 0.5m grid snap for station coordinate picking"
+                        >
+                            <span className="material-symbols-outlined text-[16px]">
+                                grid_3x3
+                            </span>
+                            <span>
+                                {stationSnapEnabled ? 'Snap 0.5m' : 'Freeform'}
+                            </span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setEditingStation(null);
+                                setStationPickMode(true);
+                            }}
+                            className="flex cursor-pointer items-center gap-1 rounded-lg bg-secondary/10 px-2.5 py-1 font-label-sm text-xs font-bold text-secondary transition hover:bg-secondary hover:text-white"
+                        >
+                            <span className="material-symbols-outlined text-[15px]">
+                                pin_drop
+                            </span>
+                            <span>Pick on Map</span>
                         </button>
                     </div>
                 )}
@@ -1653,6 +1729,35 @@ export default function Dashboard({
                                 </div>
 
                                 <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setStationSnapEnabled((s) => {
+                                                const next = !s;
+                                                toast.info(
+                                                    next
+                                                        ? 'Grid Snap: 0.50m ON'
+                                                        : 'Grid Snap: OFF (Freeform)',
+                                                );
+                                                return next;
+                                            });
+                                        }}
+                                        className={`flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 font-mono text-xs font-semibold transition-all ${
+                                            stationSnapEnabled
+                                                ? 'border border-primary/30 bg-primary/10 text-primary'
+                                                : 'bg-surface-container-high text-tertiary hover:bg-surface-container-highest'
+                                        }`}
+                                        title="Toggle 0.50m grid snap when picking station coordinates"
+                                    >
+                                        <span className="material-symbols-outlined text-[15px]">
+                                            grid_3x3
+                                        </span>
+                                        <span>
+                                            {stationSnapEnabled
+                                                ? 'Snap 0.5m'
+                                                : 'Snap Off'}
+                                        </span>
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -3013,7 +3118,36 @@ export default function Dashboard({
                                     <label className="font-label-sm text-label-sm text-tertiary uppercase">
                                         SLAM Coordinate Vector (Pose 2D)
                                     </label>
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setStationSnapEnabled((s) => {
+                                                    const next = !s;
+                                                    toast.info(
+                                                        next
+                                                            ? 'Grid Snap: 0.50m ON'
+                                                            : 'Grid Snap: OFF (Freeform)',
+                                                    );
+                                                    return next;
+                                                });
+                                            }}
+                                            className={`flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 font-mono text-[11px] font-semibold transition-all ${
+                                                stationSnapEnabled
+                                                    ? 'bg-primary/10 text-primary'
+                                                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                            }`}
+                                            title="Toggle 0.50m Grid Snap"
+                                        >
+                                            <span className="material-symbols-outlined text-[13px]">
+                                                grid_3x3
+                                            </span>
+                                            <span>
+                                                {stationSnapEnabled
+                                                    ? 'Snap 0.5m'
+                                                    : 'Snap Off'}
+                                            </span>
+                                        </button>
                                         <button
                                             type="button"
                                             onClick={() => {
