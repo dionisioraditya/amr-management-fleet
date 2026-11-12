@@ -43,6 +43,8 @@ export interface PathCoordinate {
     x: number;
     y: number;
     r?: number;
+    station_id?: number;
+    station_name?: string;
 }
 
 export interface Pathplan {

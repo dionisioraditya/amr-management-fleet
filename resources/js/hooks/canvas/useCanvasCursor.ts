@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import type { PathCoordinate } from '@/types';
+import type { PathCoordinate, Waypoint } from '@/types';
 import type { AngleConstraintMode, CanvasCalibration } from '@/lib/geometry';
-import { applyAngleConstraint, metricToSvg } from '@/lib/geometry';
+import { applyAngleConstraint, findNearbyStation, metricToSvg } from '@/lib/geometry';
 
 export interface UseCanvasCursorProps {
     calibration: CanvasCalibration;
@@ -10,6 +10,8 @@ export interface UseCanvasCursorProps {
     angleConstraintMode: AngleConstraintMode;
     draftCoordinates: PathCoordinate[];
     draftZoneCoordinates: PathCoordinate[];
+    waypoints?: Waypoint[];
+    stationSnapEnabled?: boolean;
 }
 
 export function useCanvasCursor({
@@ -19,6 +21,8 @@ export function useCanvasCursor({
     angleConstraintMode,
     draftCoordinates,
     draftZoneCoordinates,
+    waypoints,
+    stationSnapEnabled = true,
 }: UseCanvasCursorProps) {
     const svgRef = useRef<SVGSVGElement>(null);
     const [cursorMetric, setCursorMetric] = useState<{
@@ -85,13 +89,24 @@ export function useCanvasCursor({
               lengthM: 0,
           };
 
-    const effectiveCursorMetric = activeDraftAnchor
+    const snappedStation =
+        mode === 'draw-path' && stationSnapEnabled && waypoints?.length
+            ? findNearbyStation(cursorMetric, waypoints)?.station ?? null
+            : null;
+
+    const effectiveCursorMetric = snappedStation
         ? {
               ...cursorMetric,
-              x: constrainedDraftCursor.x,
-              y: constrainedDraftCursor.y,
+              x: snappedStation.x,
+              y: snappedStation.y,
           }
-        : cursorMetric;
+        : activeDraftAnchor
+          ? {
+                ...cursorMetric,
+                x: constrainedDraftCursor.x,
+                y: constrainedDraftCursor.y,
+            }
+          : cursorMetric;
 
     const cursorSvg = metricToSvg(
         effectiveCursorMetric.x,
@@ -137,5 +152,6 @@ export function useCanvasCursor({
         effectiveCursorMetric,
         cursorSvg,
         isNearFirstZoneVertex,
+        snappedStation,
     };
 }

@@ -37,6 +37,7 @@ export interface InteractiveBlueprintCanvasProps {
     defaultCornerRadius?: number;
     angleConstraintMode?: AngleConstraintMode;
     snapStep?: number;
+    stationSnapEnabled?: boolean;
     inflationRadius?: number;
     showCostmap?: boolean;
     showSlamNoise?: boolean;

@@ -39,6 +39,40 @@ class WaypointController extends Controller
     }
 
     /**
+     * Store a newly created waypoint directly (with map_id in payload or fallback to active map).
+     */
+    public function storeDirect(Request $request): JsonResponse
+    {
+        $mapId = $request->input('map_id') ?? $request->input('facility_map_id');
+        $map = $mapId ? Map::find($mapId) : Map::where('is_active', true)->first();
+        if (!$map) {
+            $map = Map::first();
+        }
+
+        if (!$map) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No active map found to register station.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:50'],
+            'x' => ['required', 'numeric'],
+            'y' => ['required', 'numeric'],
+            'theta' => ['nullable', 'numeric'],
+        ]);
+
+        $waypoint = $map->waypoints()->create($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Waypoint created successfully.',
+            'data' => $waypoint,
+        ], 201);
+    }
+
+    /**
      * Update the specified waypoint.
      */
     public function update(Request $request, Waypoint $waypoint): JsonResponse

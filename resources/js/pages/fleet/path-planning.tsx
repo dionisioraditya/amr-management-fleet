@@ -31,6 +31,7 @@ export default function PathPlanningPage({
 
     // Viewport layer display toggles
     const [snapEnabled, setSnapEnabled] = useState(true);
+    const [stationSnapEnabled, setStationSnapEnabled] = useState(true);
     const [showCostmap, setShowCostmap] = useState(true);
     const [showKeepOutZones, setShowKeepOutZones] = useState(true);
 
@@ -84,6 +85,8 @@ export default function PathPlanningPage({
                     angleConstraintMode={pathEditor.angleConstraintMode}
                     snapEnabled={snapEnabled}
                     setSnapEnabled={setSnapEnabled}
+                    stationSnapEnabled={stationSnapEnabled}
+                    setStationSnapEnabled={setStationSnapEnabled}
                     inflationCorridor={pathEditor.inflationCorridor}
                     showCostmap={showCostmap}
                     setShowCostmap={setShowCostmap}
@@ -138,6 +141,8 @@ export default function PathPlanningPage({
                         <PathCadToolbarCard
                             snapEnabled={snapEnabled}
                             onToggleSnap={() => setSnapEnabled((s) => !s)}
+                            stationSnapEnabled={stationSnapEnabled}
+                            onToggleStationSnap={() => setStationSnapEnabled((s) => !s)}
                             curveMode={pathEditor.curveMode}
                             cornerRadius={pathEditor.cornerRadius}
                             onSelectFilletCurve={() => {

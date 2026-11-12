@@ -27,6 +27,8 @@ interface PathPlanningCanvasProps {
     angleConstraintMode: AngleConstraintMode;
     snapEnabled: boolean;
     setSnapEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+    stationSnapEnabled: boolean;
+    setStationSnapEnabled: React.Dispatch<React.SetStateAction<boolean>>;
     inflationCorridor: number;
     showCostmap: boolean;
     setShowCostmap: React.Dispatch<React.SetStateAction<boolean>>;
@@ -56,6 +58,8 @@ export const PathPlanningCanvas: React.FC<PathPlanningCanvasProps> = ({
     angleConstraintMode,
     snapEnabled,
     setSnapEnabled,
+    stationSnapEnabled,
+    setStationSnapEnabled,
     inflationCorridor,
     showCostmap,
     setShowCostmap,
@@ -92,6 +96,7 @@ export const PathPlanningCanvas: React.FC<PathPlanningCanvasProps> = ({
                     defaultCornerRadius={effectiveCornerRadius}
                     angleConstraintMode={angleConstraintMode}
                     snapStep={snapEnabled ? 0.5 : 0}
+                    stationSnapEnabled={stationSnapEnabled}
                     inflationRadius={inflationCorridor}
                     showCostmap={showCostmap}
                     showKeepOutZones={showKeepOutZones}
@@ -102,6 +107,21 @@ export const PathPlanningCanvas: React.FC<PathPlanningCanvasProps> = ({
 
             {/* Top Right Map Layer Toggles */}
             <div className="pointer-events-auto absolute top-16 right-4 z-20 hidden items-center gap-2 rounded-xl border border-slate-200/80 bg-surface-container-lowest/95 px-3 py-1.5 shadow-md backdrop-blur-md xl:flex">
+                <button
+                    type="button"
+                    onClick={() => setStationSnapEnabled((s) => !s)}
+                    className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 font-label-sm text-xs transition-all ${
+                        stationSnapEnabled
+                            ? 'bg-emerald-100 font-semibold text-emerald-800 ring-1 ring-emerald-300'
+                            : 'text-on-surface-variant hover:bg-slate-100'
+                    }`}
+                    title="Toggle magnetic snapping to stations when creating or editing path waypoints"
+                >
+                    <span className="material-symbols-outlined text-[16px]">
+                        ev_station
+                    </span>
+                    Station Snap {stationSnapEnabled ? 'ON' : 'OFF'}
+                </button>
                 <button
                     type="button"
                     onClick={() => setSnapEnabled((s) => !s)}

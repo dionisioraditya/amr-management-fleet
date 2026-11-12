@@ -4,6 +4,8 @@ import type { AngleConstraintMode } from '@/components/fleet/interactive-bluepri
 interface PathCadToolbarCardProps {
     snapEnabled: boolean;
     onToggleSnap: () => void;
+    stationSnapEnabled?: boolean;
+    onToggleStationSnap?: () => void;
     curveMode: 'fillet' | 'linear';
     cornerRadius: number;
     onSelectFilletCurve: () => void;
@@ -36,6 +38,8 @@ const ANGLE_MODES = [
 export const PathCadToolbarCard: React.FC<PathCadToolbarCardProps> = ({
     snapEnabled,
     onToggleSnap,
+    stationSnapEnabled = true,
+    onToggleStationSnap,
     curveMode,
     cornerRadius,
     onSelectFilletCurve,
@@ -47,15 +51,29 @@ export const PathCadToolbarCard: React.FC<PathCadToolbarCardProps> = ({
         <div className="rounded-xl border border-slate-200/80 bg-white p-space-md shadow-xs">
             <div className="mb-space-xs flex items-center justify-between">
                 <span className="font-label-sm text-label-sm font-semibold tracking-wider text-tertiary uppercase">
-                    CAD Guideway & Angle Constraint Tools
+                    CAD Guideway & Constraint Tools
                 </span>
-                <button
-                    type="button"
-                    onClick={onToggleSnap}
-                    className="cursor-pointer font-mono text-[10px] font-bold text-primary hover:underline"
-                >
-                    Grid Snap: {snapEnabled ? '0.5m ON' : 'OFF'}
-                </button>
+                <div className="flex items-center gap-2.5">
+                    {onToggleStationSnap && (
+                        <button
+                            type="button"
+                            onClick={onToggleStationSnap}
+                            className={`cursor-pointer font-mono text-[10px] ${
+                                stationSnapEnabled ? 'font-bold text-emerald-700' : 'text-slate-400'
+                            } hover:underline`}
+                            title="Toggle magnetic snapping to stations"
+                        >
+                            Station: {stationSnapEnabled ? 'ON' : 'OFF'}
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={onToggleSnap}
+                        className="cursor-pointer font-mono text-[10px] font-bold text-primary hover:underline"
+                    >
+                        Grid: {snapEnabled ? '0.5m ON' : 'OFF'}
+                    </button>
+                </div>
             </div>
 
             {/* Row 1: Corner Transition Mode (Fillet Arc vs Linear) */}

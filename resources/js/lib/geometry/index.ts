@@ -3,3 +3,4 @@ export * from './polygon-geometry';
 export * from './angle-constraint';
 export * from './path-discretization';
 export * from './fillet-geometry';
+export * from './station-snap';

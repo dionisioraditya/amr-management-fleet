@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import { useCanvasTouchGestures } from './useCanvasTouchGestures';
 
 export interface UseCanvasViewportOptions {
     minZoom?: number;
     maxZoom?: number;
     initialZoom?: number;
+    mode?: string;
 }
 
 export function useCanvasViewport(options: UseCanvasViewportOptions = {}) {
-    const { minZoom = 0.5, maxZoom = 3.5, initialZoom = 1 } = options;
+    const { minZoom = 0.5, maxZoom = 3.5, initialZoom = 1, mode = 'view' } = options;
 
     const containerRef = useRef<HTMLDivElement>(null);
     const [zoom, setZoom] = useState(initialZoom);
@@ -63,6 +65,18 @@ export function useCanvasViewport(options: UseCanvasViewportOptions = {}) {
             container.removeEventListener('wheel', handleWheel);
         };
     }, [minZoom, maxZoom]);
+
+    useCanvasTouchGestures({
+        containerRef,
+        zoom,
+        setZoom,
+        pan,
+        setPan,
+        minZoom,
+        maxZoom,
+        mode,
+        onPanningChange: setIsPanning,
+    });
 
     const startPan = (clientX: number, clientY: number) => {
         setIsPanning(true);

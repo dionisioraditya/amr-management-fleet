@@ -27,6 +27,7 @@ Route::post('maps/{map}/activate', [MapController::class, 'activate'])->name('ma
 Route::apiResource('maps', MapController::class);
 
 // 3. Waypoints (nested under map for creation/list, direct for edit/delete)
+Route::post('waypoints', [WaypointController::class, 'storeDirect'])->name('waypoints.store');
 Route::get('maps/{map}/waypoints', [WaypointController::class, 'index'])->name('maps.waypoints.index');
 Route::post('maps/{map}/waypoints', [WaypointController::class, 'store'])->name('maps.waypoints.store');
 Route::put('waypoints/{waypoint}', [WaypointController::class, 'update'])->name('waypoints.update');

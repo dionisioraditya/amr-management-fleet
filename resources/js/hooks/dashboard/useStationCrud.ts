@@ -115,6 +115,7 @@ export function useStationCrud({
         setSavingStation(true);
         try {
             const payload = {
+                map_id: currentMapId,
                 facility_map_id: currentMapId,
                 name: stationFormName,
                 x: parseFloat(stationFormX) || 0,
@@ -122,7 +123,11 @@ export function useStationCrud({
                 theta: degToRad(parseFloat(stationFormYawDeg) || 0),
             };
 
-            const url = editingStation ? `/api/waypoints/${editingStation.id}` : '/api/waypoints';
+            const url = editingStation
+                ? `/api/waypoints/${editingStation.id}`
+                : currentMapId
+                    ? `/api/maps/${currentMapId}/waypoints`
+                    : '/api/waypoints';
             const method = editingStation ? 'PUT' : 'POST';
 
             const response = await fetch(url, {

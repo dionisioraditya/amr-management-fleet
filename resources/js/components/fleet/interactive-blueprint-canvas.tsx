@@ -52,12 +52,12 @@ export function InteractiveBlueprintCanvas(props: InteractiveBlueprintCanvasProp
         draftZoneCoordinates = [], onAddZonePoint, onUpdateZonePoint, onCompleteZone,
         defaultCornerRadius = 0.8, angleConstraintMode = 'ortho-45', snapStep = 0.5,
         inflationRadius = 0.6, showCostmap = true, showSlamNoise = false,
-        showKeepOutZones = true, showOriginDatum = true,
+        showKeepOutZones = true, showOriginDatum = true, stationSnapEnabled = true,
         occupancyViewMode = 'blueprint', resolution = 0.05, hudPosition = 'bottom-right',
     } = props;
 
     const calibration = computeCanvasCalibration(map, resolution);
-    const viewport = useCanvasViewport();
+    const viewport = useCanvasViewport({ mode });
 
     const resolvedKeepoutZones = keepoutZones ?? map?.keepout_zones ?? [];
     const activeZonesToRender =
@@ -75,7 +75,7 @@ export function InteractiveBlueprintCanvas(props: InteractiveBlueprintCanvasProp
     const effectiveSnapStep = mode === 'pose-estimate' ? 0 : snapStep;
     const cursor = useCanvasCursor({
         calibration, snapStep: effectiveSnapStep, mode, angleConstraintMode,
-        draftCoordinates, draftZoneCoordinates,
+        draftCoordinates, draftZoneCoordinates, waypoints, stationSnapEnabled,
     });
 
     const pen = useCanvasPenHandlers({
@@ -84,6 +84,7 @@ export function InteractiveBlueprintCanvas(props: InteractiveBlueprintCanvasProp
         isPanning: viewport.isPanning, startPan: viewport.startPan, updatePan: viewport.updatePan, endPan: viewport.endPan,
         cursor, onPickCoordinate, onPoseEstimate, onAddPathPoint, onUpdatePathPoint,
         onAddZonePoint, onUpdateZonePoint, onCompleteZone, onClearSelection,
+        waypoints, stationSnapEnabled,
     });
 
     const originSvg = metricToSvg(0, 0, calibration);
@@ -92,7 +93,7 @@ export function InteractiveBlueprintCanvas(props: InteractiveBlueprintCanvasProp
     return (
         <div
             ref={viewport.containerRef}
-            className={`relative inset-0 z-0 flex h-full w-full items-center justify-center overflow-hidden select-none ${
+            className={`relative inset-0 z-0 flex h-full w-full items-center justify-center overflow-hidden select-none touch-none ${
                 isRawRosMode ? 'bg-[#d4d8dd]' : 'bg-[#f8f9ff]'
             }`}
             onClick={(e) => {
@@ -123,7 +124,7 @@ export function InteractiveBlueprintCanvas(props: InteractiveBlueprintCanvasProp
                     onMouseDown={pen.handleMouseDown}
                     onMouseUp={pen.handleMouseUp}
                     onClick={pen.handleCanvasClick}
-                    className={`h-full w-full drop-shadow-sm select-none ${
+                    className={`h-full w-full drop-shadow-sm select-none touch-none ${
                         mode === 'pick-station' || mode === 'draw-path' || mode === 'draw-zone' || mode === 'pose-estimate'
                             ? 'cursor-crosshair'
                             : viewport.isPanning
@@ -181,6 +182,7 @@ export function InteractiveBlueprintCanvas(props: InteractiveBlueprintCanvasProp
                         mode={mode}
                         onSelectWaypoint={onSelectWaypoint}
                         onAddPathPoint={onAddPathPoint}
+                        snappedStationId={cursor.snappedStation?.id}
                     />
 
                     <CanvasVehicleLayer
@@ -219,6 +221,7 @@ export function InteractiveBlueprintCanvas(props: InteractiveBlueprintCanvasProp
                         constrainedDraftCursor={cursor.constrainedDraftCursor}
                         defaultCornerRadius={defaultCornerRadius}
                         isNearFirstZoneVertex={cursor.isNearFirstZoneVertex}
+                        snappedStation={cursor.snappedStation}
                     />
 
                     <CanvasDraftPoseLayer

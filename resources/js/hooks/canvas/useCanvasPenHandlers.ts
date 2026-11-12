@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import type { PathCoordinate } from '@/types';
+import type { PathCoordinate, Waypoint } from '@/types';
 import type { AngleConstraintMode, CanvasCalibration } from '@/lib/geometry';
-import { applyAngleConstraint, metricToSvg, svgToMetric } from '@/lib/geometry';
+import { applyAngleConstraint, findNearbyStation, metricToSvg, svgToMetric } from '@/lib/geometry';
 import type { useCanvasCursor } from './useCanvasCursor';
 
 export interface UseCanvasPenHandlersProps {
@@ -25,6 +25,8 @@ export interface UseCanvasPenHandlersProps {
     onUpdateZonePoint?: (index: number, coord: PathCoordinate) => void;
     onCompleteZone?: () => void;
     onClearSelection?: () => void;
+    waypoints?: Waypoint[];
+    stationSnapEnabled?: boolean;
 }
 
 export function useCanvasPenHandlers(props: UseCanvasPenHandlersProps) {
@@ -33,6 +35,7 @@ export function useCanvasPenHandlers(props: UseCanvasPenHandlersProps) {
         defaultCornerRadius, isPanning, startPan, updatePan, endPan, cursor,
         onPickCoordinate, onPoseEstimate, onAddPathPoint, onUpdatePathPoint,
         onAddZonePoint, onUpdateZonePoint, onCompleteZone, onClearSelection,
+        waypoints, stationSnapEnabled = true,
     } = props;
 
     const {
@@ -56,7 +59,11 @@ export function useCanvasPenHandlers(props: UseCanvasPenHandlersProps) {
         setCursorMetric(metric);
 
         if (draggingVertexIndex !== null && onUpdatePathPoint && draftCoordinates[draggingVertexIndex]) {
-            onUpdatePathPoint(draggingVertexIndex, { ...draftCoordinates[draggingVertexIndex], x: metric.x, y: metric.y });
+            const nearby = stationSnapEnabled && waypoints?.length ? findNearbyStation(metric, waypoints) : null;
+            const updatedCoord: PathCoordinate = nearby
+                ? { ...draftCoordinates[draggingVertexIndex], x: nearby.x, y: nearby.y, station_id: nearby.station.id, station_name: nearby.station.name }
+                : { ...draftCoordinates[draggingVertexIndex], x: metric.x, y: metric.y, station_id: undefined, station_name: undefined };
+            onUpdatePathPoint(draggingVertexIndex, updatedCoord);
             return;
         }
         if (draggingZoneVertexIndex !== null && onUpdateZonePoint && draftZoneCoordinates[draggingZoneVertexIndex]) {
@@ -109,10 +116,13 @@ export function useCanvasPenHandlers(props: UseCanvasPenHandlersProps) {
         if (mode === 'pick-station' && onPickCoordinate) {
             onPickCoordinate({ x: metric.x, y: metric.y });
         } else if (mode === 'draw-path' && onAddPathPoint) {
-            const nextPoint = draftCoordinates.length > 0
-                ? applyAngleConstraint(draftCoordinates[draftCoordinates.length - 1], metric, angleConstraintMode, e.shiftKey, snapStep)
-                : metric;
-            onAddPathPoint({ x: nextPoint.x, y: nextPoint.y, r: defaultCornerRadius });
+            const nearby = stationSnapEnabled && waypoints?.length ? findNearbyStation(metric, waypoints) : null;
+            const nextPoint = nearby
+                ? { x: nearby.x, y: nearby.y, r: defaultCornerRadius, station_id: nearby.station.id, station_name: nearby.station.name }
+                : (draftCoordinates.length > 0
+                    ? applyAngleConstraint(draftCoordinates[draftCoordinates.length - 1], metric, angleConstraintMode, e.shiftKey, snapStep)
+                    : metric);
+            onAddPathPoint({ ...nextPoint, r: defaultCornerRadius });
         } else if (mode === 'draw-zone' && onAddZonePoint) {
             if (draftZoneCoordinates.length >= 3) {
                 const fSvg = metricToSvg(draftZoneCoordinates[0].x, draftZoneCoordinates[0].y, calibration);

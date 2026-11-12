@@ -1,4 +1,4 @@
-import type { PathCoordinate } from '@/types';
+import type { PathCoordinate, Waypoint } from '@/types';
 
 interface CanvasGhostCursorProps {
     mode: string;
@@ -9,6 +9,7 @@ interface CanvasGhostCursorProps {
     constrainedDraftCursor: { lengthM: number; angleDeg: number };
     defaultCornerRadius: number;
     isNearFirstZoneVertex: boolean;
+    snappedStation?: Waypoint | null;
 }
 
 export function CanvasGhostCursor({
@@ -20,6 +21,7 @@ export function CanvasGhostCursor({
     constrainedDraftCursor,
     defaultCornerRadius,
     isNearFirstZoneVertex,
+    snappedStation,
 }: CanvasGhostCursorProps) {
     if (
         mode !== 'pick-station' &&
@@ -32,6 +34,8 @@ export function CanvasGhostCursor({
     const isZone = mode === 'draw-zone';
     const isPathOrZone = mode === 'draw-path' || isZone;
 
+    const cursorColor = isZone ? '#ef4444' : snappedStation ? '#10b981' : '#00a3ff';
+
     return (
         <g
             className="pointer-events-none"
@@ -40,17 +44,17 @@ export function CanvasGhostCursor({
             <circle
                 cx="0"
                 cy="0"
-                fill={isZone ? '#ef4444' : '#00a3ff'}
+                fill={cursorColor}
                 fillOpacity="0.2"
                 r="16"
-                stroke={isZone ? '#ef4444' : '#00a3ff'}
+                stroke={cursorColor}
                 strokeDasharray="3 3"
                 strokeWidth="1.5"
             />
             <circle
                 cx="0"
                 cy="0"
-                fill={isZone ? '#ef4444' : '#00a3ff'}
+                fill={cursorColor}
                 r="4"
             />
             <rect
@@ -64,16 +68,24 @@ export function CanvasGhostCursor({
             />
             <text
                 className="font-mono text-[9px] font-bold"
-                fill={isZone ? '#fecaca' : '#98cbff'}
+                fill={isZone ? '#fecaca' : snappedStation ? '#6ee7b7' : '#98cbff'}
                 x="18"
                 y={isPathOrZone ? '-20' : '-10'}
             >
-                [{effectiveCursorMetric.x.toFixed(2)},{' '}
-                {effectiveCursorMetric.y.toFixed(2)}]
+                {snappedStation ? `SNAP: ${snappedStation.name}` : `[${effectiveCursorMetric.x.toFixed(2)}, ${effectiveCursorMetric.y.toFixed(2)}]`}
             </text>
 
             {mode === 'draw-path' && (
-                draftCoordinates.length > 0 ? (
+                snappedStation ? (
+                    <text
+                        className="font-mono text-[8px] font-semibold"
+                        fill="#34d399"
+                        x="18"
+                        y="-8"
+                    >
+                        Station Dock Lock: [{snappedStation.x.toFixed(2)}, {snappedStation.y.toFixed(2)}]
+                    </text>
+                ) : draftCoordinates.length > 0 ? (
                     <text
                         className="font-mono text-[8px] font-semibold"
                         fill="#6ee7b7"
@@ -89,7 +101,7 @@ export function CanvasGhostCursor({
                         x="18"
                         y="-8"
                     >
-                        Click map to place WP-1 (Start)
+                        Click map or station to place WP-1 (Start)
                     </text>
                 )
             )}

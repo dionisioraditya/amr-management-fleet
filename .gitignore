@@ -37,5 +37,5 @@ GRAPH_REPORT.md
 graphify_out/
 graphify-out/
 .graphify_*.json
-
+/.agents
 AGENTS.md

@@ -154,6 +154,8 @@ export default function StationsPage({
         setSaving(true);
 
         const payload = {
+            map_id: currentMapId,
+            facility_map_id: currentMapId,
             name: formName.trim().toUpperCase(),
             x: parseFloat(formX) || 0,
             y: parseFloat(formY) || 0,

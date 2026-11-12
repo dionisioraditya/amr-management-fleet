@@ -10,6 +10,7 @@ interface CanvasStationLayerProps {
     mode: string;
     onSelectWaypoint?: (waypoint: Waypoint) => void;
     onAddPathPoint?: (coord: PathCoordinate) => void;
+    snappedStationId?: number | null;
 }
 
 export function CanvasStationLayer({
@@ -20,6 +21,7 @@ export function CanvasStationLayer({
     mode,
     onSelectWaypoint,
     onAddPathPoint,
+    snappedStationId,
 }: CanvasStationLayerProps) {
     return (
         <>
@@ -28,6 +30,7 @@ export function CanvasStationLayer({
                 const isSelected = wp.id === selectedWaypointId;
                 const isEditing = editingWaypointId != null && wp.id === editingWaypointId;
                 const isDimmed = isEditing && mode === 'pick-station';
+                const isSnapped = snappedStationId != null && wp.id === snappedStationId;
                 const isCharger =
                     wp.name.toUpperCase().includes('CHARGE') ||
                     wp.name.toUpperCase().includes('CHG');
@@ -45,13 +48,19 @@ export function CanvasStationLayer({
                             }
                             e.stopPropagation();
                             if (mode === 'draw-path' && onAddPathPoint) {
-                                onAddPathPoint({ x: wp.x, y: wp.y });
+                                onAddPathPoint({ x: wp.x, y: wp.y, station_id: wp.id, station_name: wp.name });
                             } else if (onSelectWaypoint) {
                                 onSelectWaypoint(wp);
                             }
                         }}
                     >
-                        {isSelected && !isDimmed && (
+                        {isSnapped && (
+                            <>
+                                <circle className="animate-ping" cx="0" cy="0" fill="#10b981" opacity="0.35" r="22" />
+                                <circle cx="0" cy="0" fill="none" r="18" stroke="#10b981" strokeDasharray="3 3" strokeWidth="2.5" />
+                            </>
+                        )}
+                        {isSelected && !isDimmed && !isSnapped && (
                             <circle
                                 className="animate-ping"
                                 cx="0"
