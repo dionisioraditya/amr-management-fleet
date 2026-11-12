@@ -75,7 +75,7 @@ export const RobotsCockpit: React.FC<RobotsCockpitProps> = ({
         <>
             <aside
                 aria-hidden={activeSection !== 'robots'}
-                className={`absolute top-0 bottom-0 left-0 z-20 flex h-full w-full max-w-[460px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm transition-all duration-500 ease-spring ${
+                className={`absolute top-0 bottom-0 left-0 z-20 flex h-full w-full max-w-[560px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm transition-all duration-500 ease-spring ${
                     activeSection === 'robots'
                         ? 'pointer-events-auto translate-x-0 opacity-100 scale-100'
                         : 'pointer-events-none -translate-x-12 opacity-0 scale-[0.98]'

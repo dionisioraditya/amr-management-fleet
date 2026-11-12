@@ -28,7 +28,7 @@ export function MapStudioZoneBanner({
     ] as const;
 
     return (
-        <div className="pointer-events-auto absolute top-[68px] right-4 left-[440px] z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-300 bg-red-950/95 px-4 py-2 text-white shadow-lg backdrop-blur-md">
+        <div className="pointer-events-auto absolute top-[68px] right-4 left-[580px] z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-300 bg-red-950/95 px-4 py-2 text-white shadow-lg backdrop-blur-md">
             <div className="flex items-center gap-2.5">
                 <span className="material-symbols-outlined text-[18px] text-red-400">
                     pentagon

@@ -155,7 +155,7 @@ export default function MapStudio({
                 />
 
                 {/* 2. Left Floating Cockpit Panel */}
-                <aside className="relative z-10 flex h-full w-full max-w-[420px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm">
+                <aside className="relative z-10 flex h-full w-full max-w-[560px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm">
                     <div className="flex flex-col gap-space-md p-margin-lg">
                         <MapStudioHeaderCard
                             mapsCount={maps.length}

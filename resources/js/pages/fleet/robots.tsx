@@ -267,7 +267,7 @@ export default function RobotsPage({
                 </div>
 
                 {/* 2. Left Cockpit Panel (Pure White 40% Transparent Glass Backing) */}
-                <aside className="relative z-10 flex h-full w-full max-w-[460px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm">
+                <aside className="relative z-10 flex h-full w-full max-w-[560px] flex-col overflow-y-auto border-r border-slate-200/60 bg-white/40 backdrop-blur-sm">
                     <div className="flex flex-col gap-space-md p-margin-lg">
                         {/* Top Telemetry Header Card */}
                         <div className="flex flex-col gap-space-md rounded-xl border border-slate-200/80 bg-white p-space-md shadow-xs">

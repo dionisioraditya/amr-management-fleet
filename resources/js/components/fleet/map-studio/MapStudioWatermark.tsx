@@ -17,7 +17,7 @@ export function MapStudioWatermark({
     if (!currentMap) return null;
 
     return (
-        <div className="pointer-events-none absolute bottom-4 left-[440px] z-20 hidden space-y-0.5 rounded-xl border border-slate-200/80 bg-white/90 px-3.5 py-2 font-mono text-[10px] text-tertiary shadow-xs backdrop-blur-sm lg:block">
+        <div className="pointer-events-none absolute bottom-4 left-[580px] z-20 hidden space-y-0.5 rounded-xl border border-slate-200/80 bg-white/90 px-3.5 py-2 font-mono text-[10px] text-tertiary shadow-xs backdrop-blur-sm lg:block">
             <div className="font-bold text-on-surface">
                 ACTIVE MAP: {currentMap.name.toUpperCase()} ({realWidthMeters}m × {realHeightMeters}m)
             </div>

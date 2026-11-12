@@ -36,9 +36,9 @@ export function MapStudioRibbon({
     onPushToNav2,
 }: MapStudioRibbonProps) {
     return (
-        <div className="pointer-events-auto absolute top-4 right-4 left-[440px] z-20 hidden flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/95 px-3.5 py-2 shadow-xs backdrop-blur-md lg:flex">
+        <div className="pointer-events-auto absolute top-4 right-4 left-[580px] z-20 hidden flex-nowrap items-center justify-between gap-3 overflow-x-auto rounded-xl border border-slate-200/80 bg-white/95 px-3.5 py-2 shadow-xs backdrop-blur-md lg:flex [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {/* Opsi B: Dual-Mode Occupancy View Toggle */}
-            <div className="flex items-center gap-1 rounded-lg bg-surface-container-low p-1">
+            <div className="flex shrink-0 items-center gap-1 rounded-lg bg-surface-container-low p-1">
                 <button
                     type="button"
                     onClick={() => onOccupancyModeChange('blueprint')}
@@ -70,7 +70,7 @@ export function MapStudioRibbon({
             </div>
 
             {/* Layer Toggles & Polygon Pen Tool */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
                 <button
                     type="button"
                     onClick={onToggleActiveTool}
@@ -138,7 +138,7 @@ export function MapStudioRibbon({
             </div>
 
             {/* CAD Tools & Push to Nav2 CTA */}
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
                 <div className="hidden items-center gap-1 text-xs text-tertiary xl:flex">
                     <span>Snap:</span>
                     <select
